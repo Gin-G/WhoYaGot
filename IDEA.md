@@ -31,4 +31,6 @@ unchecked if you reword it.
 HTML comments are stripped on read, so this block never reaches the board.
 -->
 
+An app that provides player tiles, this player, or that player, so that we can build a database of player preferences for users logged in via Google and overall across all users
+
 ## Todos
