@@ -31,6 +31,6 @@ unchecked if you reword it.
 HTML comments are stripped on read, so this block never reaches the board.
 -->
 
-An app that provides player tiles, this player, or that player, so that we can build a database of player preferences for users logged in via Google and overall across all users
+An app that provides player tiles, this player, or that player, so that we can build a database of player preferences for users logged in via Google and overall across all users. It will start with NFL, and then expand to MLB, NHL, NBA, Soccer, Golf, etc. with selectable league tabs
 
 ## Todos
