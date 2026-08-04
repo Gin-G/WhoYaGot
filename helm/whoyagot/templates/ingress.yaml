@@ -1,0 +1,41 @@
+{{- if .Values.ingress.enabled }}
+# One rule. Everything goes to the web pod, whose nginx serves the site and
+# proxies /api to the API service — so the API is public at https://<fqdn>/api
+# without a second hostname or certificate.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.web.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.web.name }}
+    group: {{ .Values.group }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-passthrough: "false"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+    kubernetes.io/ingress-class: nginx
+    external-dns.alpha.kubernetes.io/target: {{ .Values.ingress.externalDnsTarget | quote }}
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - {{ .Values.ingress.fqdn }}
+      secretName: {{ .Values.web.name }}-tls
+  rules:
+    - host: {{ .Values.ingress.fqdn }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.path }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.web.name }}
+                port:
+                  number: {{ .Values.web.container.port }}
+{{- end }}

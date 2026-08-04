@@ -92,11 +92,48 @@ tag runs in every environment and a new API hostname does not mean a rebuild.
 | Workflow | |
 |---|---|
 | `ci.yaml` | Backend pytest, frontend type-check and build. No secrets, so it runs on forks |
-| `containers.yaml` | Builds and pushes both images on `main`, then starts them and checks the site serves, the proxy reaches the API, and the runtime config was injected |
+| `containers.yaml` | Builds both images on `main`, starts them and checks the site serves, then pushes and writes the new tags into the Helm chart |
 | `android.yaml` | Debug APK on every run; a signed AAB and APK on `v*` tags |
 
 Secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`. Variables: `PUBLIC_API_URL`
 (absolute API URL, required for Android release builds), `GOOGLE_CLIENT_ID`.
+
+## Deploying
+
+`helm/whoyagot` is one chart covering the whole app, so it is one ArgoCD
+Application. It renders the API and web Deployments and Services, an Ingress, a
+CloudNativePG cluster, the External Secrets wiring, and a nightly player-sync
+CronJob per league.
+
+```bash
+helm template whoyagot helm/whoyagot -n whoyagot   # inspect
+helm upgrade --install whoyagot helm/whoyagot -n whoyagot --create-namespace
+```
+
+**One hostname.** The web pod serves the site and proxies `/api` to the API
+service, so nothing needs a second host or certificate — and the API is public
+at `https://<fqdn>/api`, which is what the Android build should point at.
+
+Sync waves order the rollout: secrets first (`-1`), the database (`0`), then the
+workloads (`1`) and the sync CronJob (`2`).
+
+Set in OpenBao under the `whoyagot` path before the first sync:
+
+| Property | |
+|---|---|
+| `jwt_secret` | Signs session tokens — `openssl rand -hex 32` |
+| `admin_token` | Guards `POST /admin/sync` |
+| `dbuser`, `dbpassw` | Application database user |
+| `dbsu`, `dbsupassw` | Database superuser |
+
+`googleClientId` lives in `values.yaml`, not OpenBao — it ships to every browser,
+so it is not a secret. Leaving it empty disables the sign-in button; anonymous
+voting still works.
+
+Once images are published, CI writes each new tag into `helm/whoyagot/values.yaml`
+and commits it, so ArgoCD picks up the deploy on its own. That commit touches
+only `helm/`, which is outside the workflow's path filter, so it cannot trigger
+another build.
 
 Signed Android releases additionally need `ANDROID_KEYSTORE_BASE64`,
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. The

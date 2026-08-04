@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.web.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.web.name }}
+    group: {{ .Values.group }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: {{ .Values.web.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.web.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.web.name }}
+        group: {{ .Values.group }}
+      annotations:
+        # The image holds no environment-specific values — they are read at
+        # container start-up. Rolling the pods on a config change is what makes
+        # a new API URL or client ID take effect.
+        checksum/config: {{ printf "%s|%s|%s" .Values.web.publicApiUrl .Values.googleClientId .Values.api.name | sha256sum }}
+    spec:
+      containers:
+        - name: {{ .Values.web.name }}
+          image: {{ .Values.web.container.image }}
+          imagePullPolicy: {{ .Values.web.container.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.web.container.port }}
+          env:
+            # Where nginx forwards /api.
+            - name: API_UPSTREAM
+              value: "http://{{ .Values.api.name }}:{{ .Values.api.container.port }}"
+            # What the browser calls, written into config.js at start-up.
+            - name: PUBLIC_API_URL
+              value: {{ .Values.web.publicApiUrl | quote }}
+            - name: GOOGLE_CLIENT_ID
+              value: {{ .Values.googleClientId | quote }}
+          resources:
+            requests:
+              memory: {{ .Values.web.container.memoryRequest }}
+              cpu: {{ .Values.web.container.cpuRequest }}
+            limits:
+              memory: {{ .Values.web.container.memoryLimit }}
+              cpu: {{ .Values.web.container.cpuLimit }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.web.container.port }}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.web.container.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 20

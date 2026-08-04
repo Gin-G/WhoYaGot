@@ -1,0 +1,88 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.postgres.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.postgres.name }}
+    group: {{ .Values.group }}
+  annotations:
+    # Ahead of the app, so the API's first connection has somewhere to land.
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  instances: {{ .Values.postgres.instances }}
+  storage:
+    size: {{ .Values.postgres.size }}
+    {{- with .Values.postgres.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  {{- with .Values.postgres.resources }}
+  resources:
+{{ toYaml . | indent 4 }}
+  {{- end }}
+  {{- with .Values.postgres.parameters }}
+  postgresql:
+    parameters:
+{{ toYaml . | indent 6 }}
+  {{- end }}
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: {{ .Values.postgres.name }}-superuser
+
+  bootstrap:
+    initdb:
+      database: {{ .Values.postgres.app.name }}
+      owner: {{ .Values.postgres.app.owner }}
+      secret:
+        name: {{ .Values.postgres.name }}-app-user
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ .Values.postgres.name }}-app-user-eso
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: {{ .Values.secrets.secretStore.name }}
+    kind: SecretStore
+  target:
+    name: {{ .Values.postgres.name }}-app-user
+  data:
+    - secretKey: username
+      remoteRef:
+        key: {{ .Values.postgres.secretPath }}
+        property: {{ .Values.postgres.appuser.userKey }}
+    - secretKey: password
+      remoteRef:
+        key: {{ .Values.postgres.secretPath }}
+        property: {{ .Values.postgres.appuser.passwordKey }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ .Values.postgres.name }}-superuser-eso
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: {{ .Values.secrets.secretStore.name }}
+    kind: SecretStore
+  target:
+    name: {{ .Values.postgres.name }}-superuser
+  data:
+    - secretKey: username
+      remoteRef:
+        key: {{ .Values.postgres.secretPath }}
+        property: {{ .Values.postgres.superuser.userKey }}
+    - secretKey: password
+      remoteRef:
+        key: {{ .Values.postgres.secretPath }}
+        property: {{ .Values.postgres.superuser.passwordKey }}
+{{- end }}

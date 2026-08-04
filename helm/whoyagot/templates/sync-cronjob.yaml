@@ -1,0 +1,52 @@
+{{- if .Values.sync.enabled }}
+{{- range $league := .Values.sync.leagues }}
+---
+# Refreshes a league's player pool from its upstream source.
+#
+# Idempotent: players who fall off a roster are deactivated rather than deleted,
+# so existing votes still resolve and a returning player keeps their rating.
+#
+# One-off run:
+#   kubectl create job -n {{ $.Release.Namespace }} \
+#     --from=cronjob/{{ $.Values.api.name }}-sync-{{ $league }} sync-{{ $league }}-manual
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $.Values.api.name }}-sync-{{ $league }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app: {{ $.Values.api.name }}
+    group: {{ $.Values.group }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  schedule: {{ $.Values.sync.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      ttlSecondsAfterFinished: 172800
+      template:
+        metadata:
+          labels:
+            app: {{ $.Values.api.name }}-sync
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: sync
+              image: {{ $.Values.api.container.image }}
+              imagePullPolicy: {{ $.Values.api.container.imagePullPolicy }}
+              command: ["python", "scripts/sync_players.py", "--league", {{ $league | quote }}]
+              env:
+                {{- include "whoyagot.apiEnv" $ | nindent 16 }}
+              resources:
+                requests:
+                  memory: "128Mi"
+                  cpu: "50m"
+                limits:
+                  memory: "512Mi"
+                  cpu: "500m"
+{{- end }}
+{{- end }}

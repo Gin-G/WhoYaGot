@@ -1,0 +1,106 @@
+group: whoyagot
+
+# ── API ──────────────────────────────────────────────────────────────────────
+api:
+  name: whoyagot-api
+  replicaCount: 1
+  container:
+    # CI rewrites the tag on this line after each successful build, and ArgoCD
+    # deploys the result. Keep the repository and tag together on one line.
+    image: docker.io/ncging/whoyagot-api:2026-08-04.16.31
+    imagePullPolicy: Always
+    port: 8000
+    memoryRequest: "256Mi"
+    memoryLimit: "1Gi"
+    cpuRequest: "100m"
+    cpuLimit: "1"
+  # Where player data comes from.
+  nflApiUrl: https://nfl-api.nickknows.net
+
+# ── Web ──────────────────────────────────────────────────────────────────────
+web:
+  name: whoyagot-web
+  replicaCount: 2
+  container:
+    # CI rewrites the tag on this line too.
+    image: docker.io/ncging/whoyagot-web:2026-08-04.16.31
+    imagePullPolicy: Always
+    port: 8080
+    memoryRequest: "32Mi"
+    memoryLimit: "128Mi"
+    cpuRequest: "10m"
+    cpuLimit: "500m"
+  # What the browser calls. Same-origin by default: nginx in this pod proxies
+  # /api to the API service, so the browser never makes a cross-origin request.
+  publicApiUrl: /api
+
+# Google OAuth client ID. Not a secret — it ships to every browser — so it lives
+# in values rather than OpenBao. Empty disables the sign-in button; voting still
+# works anonymously.
+googleClientId: ""
+
+# ── Ingress ──────────────────────────────────────────────────────────────────
+# One hostname. The web pod serves the site and proxies /api to the API, so the
+# API is reachable at https://<fqdn>/api — which is also what the Android build
+# should use for PUBLIC_API_URL.
+ingress:
+  enabled: true
+  fqdn: whoyagot.nickknows.net
+  path: /
+  clusterIssuer: letsencrypt-cloudflare
+  externalDnsTarget: "8.44.158.127"
+
+# ── Player sync ──────────────────────────────────────────────────────────────
+sync:
+  enabled: true
+  # Nightly, after rosters settle.
+  schedule: "0 9 * * *"
+  leagues:
+    - nfl
+
+# ── Secrets (OpenBao via External Secrets) ───────────────────────────────────
+secrets:
+  path: whoyagot
+  targetSecret: whoyagot-secrets
+  jwtSecretProperty: jwt_secret
+  adminTokenProperty: admin_token
+  secretStore:
+    # Set false if a SecretStore already exists in this namespace.
+    create: true
+    name: openbao-backend
+    server: http://openbao.openbao.svc.cluster.local:8200
+    path: kv
+    credentialsSecret: openbao-credentials
+
+# ── Database (CloudNativePG) ─────────────────────────────────────────────────
+# In this chart rather than a separate one, so the whole app is a single ArgoCD
+# Application. Set enabled: false to point at a cluster managed elsewhere.
+postgres:
+  enabled: true
+  name: whoyagot-db
+  instances: 1
+  size: 5Gi
+  # Network-attached, so the DB is not pinned to a single node.
+  storageClass: rook-ceph-block
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  parameters:
+    shared_buffers: 256MB
+    work_mem: 16MB
+    maintenance_work_mem: 128MB
+    effective_cache_size: 768MB
+  secretPath: whoyagot
+  app:
+    name: whoyagot-db
+    owner: ging
+  superuser:
+    userKey: dbsu
+    passwordKey: dbsupassw
+  appuser:
+    userKey: dbuser
+    passwordKey: dbpassw

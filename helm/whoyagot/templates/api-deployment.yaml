@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.api.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.api.name }}
+    group: {{ .Values.group }}
+  annotations:
+    # Let the database settle before the API tries to reach it. The API starts
+    # either way — it logs and carries on — but this avoids a noisy first boot.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.api.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.api.name }}
+        group: {{ .Values.group }}
+    spec:
+      containers:
+        - name: {{ .Values.api.name }}
+          image: {{ .Values.api.container.image }}
+          imagePullPolicy: {{ .Values.api.container.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.api.container.port }}
+          env:
+            {{- include "whoyagot.apiEnv" . | nindent 12 }}
+            - name: CORS_ORIGINS
+              value: {{ include "whoyagot.corsOrigins" . | quote }}
+            - name: GOOGLE_CLIENT_IDS
+              value: {{ .Values.googleClientId | quote }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.targetSecret }}
+                  key: JWT_SECRET
+                  optional: true
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.targetSecret }}
+                  key: ADMIN_TOKEN
+                  optional: true
+          resources:
+            requests:
+              memory: {{ .Values.api.container.memoryRequest }}
+              cpu: {{ .Values.api.container.cpuRequest }}
+            limits:
+              memory: {{ .Values.api.container.memoryLimit }}
+              cpu: {{ .Values.api.container.cpuLimit }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.api.container.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              # / rather than /health: /health probes the database, and a brief
+              # DB blip should not restart a process that is otherwise fine.
+              path: /
+              port: {{ .Values.api.container.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 20

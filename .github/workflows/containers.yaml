@@ -6,6 +6,9 @@
 # The images are started and exercised before anything is pushed, so a build
 # that compiles but does not serve never reaches the registry.
 #
+# After a successful push it writes the new tag into helm/whoyagot/values.yaml
+# and commits it. ArgoCD watches the chart, so that commit is the deploy.
+#
 # Publishing needs DOCKERHUB_USERNAME and DOCKERHUB_TOKEN. Without them the job
 # still builds and verifies, and simply skips the push — so the workflow is
 # useful before the registry is set up, and starts publishing the moment the
@@ -40,6 +43,8 @@ jobs:
     name: Build, verify & publish
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # to commit the chart's new image tags
     steps:
       - uses: actions/checkout@v4
 
@@ -126,25 +131,49 @@ jobs:
         id: date
         run: echo "date=$(date +'%Y-%m-%d.%H.%M')" >> $GITHUB_OUTPUT
 
-      # Every layer is already in the build cache, so these are near-instant.
-      - name: Push api image
+      # Tag and push the images the checks above just exercised, rather than
+      # rebuilding them. A rebuild here would produce different bytes than the
+      # ones that were verified.
+      - name: Push images
         if: steps.registry.outputs.publish == 'true'
-        uses: docker/build-push-action@v6
-        with:
-          context: ./backend
-          push: true
-          tags: |
-            ncging/whoyagot-api:latest
-            ncging/whoyagot-api:${{ steps.date.outputs.date }}
-            ncging/whoyagot-api:${{ github.sha }}
+        run: |
+          TAG="${{ steps.date.outputs.date }}"
+          for name in api web; do
+            for ref in latest "$TAG" "${{ github.sha }}"; do
+              docker tag "whoyagot-${name}:ci" "ncging/whoyagot-${name}:${ref}"
+              docker push "ncging/whoyagot-${name}:${ref}"
+            done
+          done
 
-      - name: Push web image
+      # ArgoCD watches the chart, so committing the new tags is the deploy.
+      # This only touches helm/, which is not in this workflow's path filter,
+      # so the commit does not trigger another run.
+      - name: Point the Helm chart at the new images
         if: steps.registry.outputs.publish == 'true'
-        uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          push: true
-          tags: |
-            ncging/whoyagot-web:latest
-            ncging/whoyagot-web:${{ steps.date.outputs.date }}
-            ncging/whoyagot-web:${{ github.sha }}
+        run: |
+          TAG="${{ steps.date.outputs.date }}"
+          sed -i "s|image: docker.io/ncging/whoyagot-api:.*|image: docker.io/ncging/whoyagot-api:${TAG}|" \
+            helm/whoyagot/values.yaml
+          sed -i "s|image: docker.io/ncging/whoyagot-web:.*|image: docker.io/ncging/whoyagot-web:${TAG}|" \
+            helm/whoyagot/values.yaml
+
+          # A sed that silently matched nothing would leave ArgoCD deploying the
+          # previous image while the run reports success.
+          grep -q "whoyagot-api:${TAG}" helm/whoyagot/values.yaml \
+            && grep -q "whoyagot-web:${TAG}" helm/whoyagot/values.yaml \
+            || { echo "::error::Failed to update image tags in helm/whoyagot/values.yaml"; exit 1; }
+          grep -E 'image: docker.io/ncging/whoyagot-(api|web):' helm/whoyagot/values.yaml
+
+      - name: Commit the chart update
+        if: steps.registry.outputs.publish == 'true'
+        run: |
+          if git diff --quiet -- helm/whoyagot/values.yaml; then
+            echo "Chart already points at this tag; nothing to commit."
+            exit 0
+          fi
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          git config user.name "$GITHUB_ACTOR"
+          git add helm/whoyagot/values.yaml
+          git commit -m "ci: deploy whoyagot-api and whoyagot-web ${{ steps.date.outputs.date }}"
+          git pull --rebase
+          git push
