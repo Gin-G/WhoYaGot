@@ -1,0 +1,174 @@
+@import '@fontsource-variable/archivo/standard.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/600.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Safe areas for the Android notch/gesture bar under Capacitor. */
+    --inset-top: env(safe-area-inset-top, 0px);
+    --inset-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-ink text-ink font-sans antialiased;
+    /* The vote screen is a fixed stage — the page itself never scrolls. */
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Numbers are data. Data is monospace, always. */
+  .tabular {
+    @apply font-mono;
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 3px solid theme('colors.signal');
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* The concourse register: signage caps, wide and letterspaced. */
+  .sign {
+    font-stretch: 118%;
+    @apply font-semibold uppercase tracking-[0.14em];
+  }
+
+  .sign-tight {
+    font-stretch: 112%;
+    @apply font-semibold uppercase tracking-[0.08em];
+  }
+
+  /* Player names, broadcast lower-third style: given name wide and light
+     above a surname squeezed and heavy, so long names still fit. */
+  .name-given {
+    font-stretch: 115%;
+    @apply text-name-sm font-medium uppercase tracking-[0.06em];
+  }
+
+  .name-family {
+    font-stretch: 76%;
+    @apply text-name-lg font-extrabold uppercase;
+  }
+}
+
+@layer components {
+  /* ── The seam ──────────────────────────────────────────────────────────
+     Two players, one fault line. Phones split top/bottom (both halves stay
+     under a thumb); wider screens split left/right. Same tilt either way.
+
+     The line is drawn as an ink band with a chalk core, because a single
+     stroke would disappear against roughly a third of the NFL's team colors
+     — the Raiders' black would swallow an ink line, the Steelers' gold a
+     chalk one. Two tones read against anything. */
+
+  .stage-half {
+    @apply absolute inset-0 overflow-hidden text-left;
+    transition:
+      clip-path 220ms cubic-bezier(0.16, 1, 0.3, 1),
+      opacity 220ms ease-out;
+  }
+
+  .stage-half-a {
+    clip-path: polygon(0 0, 100% 0, 100% 54%, 0 46%);
+  }
+
+  .stage-half-b {
+    clip-path: polygon(0 46%, 100% 54%, 100% 100%, 0 100%);
+  }
+
+  .stage-seam {
+    @apply pointer-events-none absolute inset-0;
+    transition: opacity 180ms ease-out;
+  }
+
+  .stage-seam-outer {
+    background: theme('colors.ink.DEFAULT');
+    clip-path: polygon(
+      0 calc(46% - 3px),
+      100% calc(54% - 3px),
+      100% calc(54% + 4px),
+      0 calc(46% + 4px)
+    );
+  }
+
+  .stage-seam-inner {
+    background: theme('colors.chalk');
+    clip-path: polygon(
+      0 calc(46% - 1px),
+      100% calc(54% - 1px),
+      100% calc(54% + 1px),
+      0 calc(46% + 1px)
+    );
+  }
+
+  @media (min-width: 768px) {
+    .stage-half-a {
+      clip-path: polygon(0 0, 54% 0, 46% 100%, 0 100%);
+    }
+
+    .stage-half-b {
+      clip-path: polygon(54% 0, 100% 0, 100% 100%, 46% 100%);
+    }
+
+    .stage-seam-outer {
+      clip-path: polygon(
+        calc(54% - 3px) 0,
+        calc(54% + 4px) 0,
+        calc(46% + 4px) 100%,
+        calc(46% - 3px) 100%
+      );
+    }
+
+    .stage-seam-inner {
+      clip-path: polygon(
+        calc(54% - 1px) 0,
+        calc(54% + 1px) 0,
+        calc(46% + 1px) 100%,
+        calc(46% - 1px) 100%
+      );
+    }
+  }
+
+  /* The pick: the winner floods across the seam, the loser drops away. */
+  .stage-half-won {
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+    z-index: 2;
+  }
+
+  .stage-half-lost {
+    @apply opacity-0;
+  }
+
+  .stage-seam-hidden {
+    @apply opacity-0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .stage-half,
+    .stage-seam {
+      transition-duration: 1ms;
+    }
+  }
+}
+
+@layer utilities {
+  .pt-inset {
+    padding-top: calc(var(--inset-top) + 0.5rem);
+  }
+
+  .pb-inset {
+    padding-bottom: calc(var(--inset-bottom) + 0.5rem);
+  }
+}

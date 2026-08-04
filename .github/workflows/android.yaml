@@ -1,0 +1,206 @@
+# Builds the Android app.
+#
+# Every run produces a debug APK as an artifact — no secrets needed. Tagged
+# releases additionally produce a signed AAB for Play, but only when the signing
+# secrets exist; without them the release job reports what is missing and stops
+# rather than publishing something unsignable.
+#
+# The Android build has no nginx in front of it, so unlike the web image its API
+# URL is compiled in. It comes from the PUBLIC_API_URL repo variable.
+#
+# Optional GitHub secrets (for signed releases):
+#   ANDROID_KEYSTORE_BASE64   - base64 of your release keystore (base64 -w0 release.jks)
+#   ANDROID_KEYSTORE_PASSWORD - keystore password
+#   ANDROID_KEY_ALIAS         - key alias
+#   ANDROID_KEY_PASSWORD      - key password
+#
+# Repo variables:
+#   PUBLIC_API_URL            - absolute API URL, e.g. https://whoyagot-api.nickknows.net
+
+name: Android
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - frontend/**
+      - .github/workflows/android.yaml
+  pull_request:
+    paths:
+      - frontend/**
+  workflow_dispatch:
+
+jobs:
+  debug:
+    name: Debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      # Gradle 8.2 / compileSdk 34 want JDK 17.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Resolve the API URL
+        id: api
+        run: |
+          URL="${{ vars.PUBLIC_API_URL }}"
+          if [ -z "$URL" ]; then
+            echo "::warning::PUBLIC_API_URL is not set. Building against http://10.0.2.2:8000 (the host machine as seen from an emulator). This APK will not reach a real API."
+            URL="http://10.0.2.2:8000"
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build web assets
+        working-directory: frontend
+        env:
+          VITE_API_URL: ${{ steps.api.outputs.url }}
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+        run: npm run build
+
+      - name: Sync into the Android project
+        working-directory: frontend
+        run: npx cap sync android
+
+      - name: Assemble debug APK
+        working-directory: frontend/android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whoyagot-debug-apk
+          path: frontend/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+  release:
+    name: Signed release bundle
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to attach the build to the GitHub release
+    steps:
+      - uses: actions/checkout@v4
+
+      # `secrets` cannot be read from a job-level `if`, so the presence check
+      # happens here and later steps key off its output.
+      - name: Check for signing secrets
+        id: signing
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          missing=""
+          [ -n "$KEYSTORE" ]       || missing="$missing ANDROID_KEYSTORE_BASE64"
+          [ -n "$STORE_PASSWORD" ] || missing="$missing ANDROID_KEYSTORE_PASSWORD"
+          [ -n "$KEY_ALIAS" ]      || missing="$missing ANDROID_KEY_ALIAS"
+          [ -n "$KEY_PASSWORD" ]   || missing="$missing ANDROID_KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::Cannot build a signed release. Missing secrets:$missing"
+            exit 1
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Require a real API URL
+        run: |
+          if [ -z "${{ vars.PUBLIC_API_URL }}" ]; then
+            echo "::error::PUBLIC_API_URL must be set for a release build, or the app ships pointing at nothing."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build web assets
+        working-directory: frontend
+        env:
+          VITE_API_URL: ${{ vars.PUBLIC_API_URL }}
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+        run: npm run build
+
+      - name: Sync into the Android project
+        working-directory: frontend
+        run: npx cap sync android
+
+      - name: Set the version from the tag
+        working-directory: frontend/android/app
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/versionName \".*\"/versionName \"${VERSION}\"/" build.gradle
+          sed -i "s/versionCode .*/versionCode ${GITHUB_RUN_NUMBER}/" build.gradle
+          grep -E 'versionName|versionCode' build.gradle
+
+      - name: Write the keystore
+        working-directory: frontend/android
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE" | base64 -d > release.jks
+          # build.gradle reads this file and wires up signingConfigs.release.
+          cat > keystore.properties <<EOF
+          storeFile=release.jks
+          storePassword=${STORE_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          keyPassword=${KEY_PASSWORD}
+          EOF
+
+      - name: Build signed bundle and APK
+        working-directory: frontend/android
+        run: ./gradlew --no-daemon bundleRelease assembleRelease
+
+      - name: Remove signing material
+        if: always()
+        working-directory: frontend/android
+        run: rm -f release.jks keystore.properties
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whoyagot-release
+          path: |
+            frontend/android/app/build/outputs/bundle/release/*.aab
+            frontend/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Attach to the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            frontend/android/app/build/outputs/bundle/release/*.aab
+            frontend/android/app/build/outputs/apk/release/*.apk

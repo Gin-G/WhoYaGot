@@ -1,0 +1,12 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+pydantic==2.10.4
+psycopg2-binary==2.9.10
+httpx==0.28.1
+pyjwt==2.10.1
+google-auth==2.37.0
+# google.auth.transport.requests needs this; it is not pulled in automatically
+requests==2.32.3
+python-multipart==0.0.20
+pytest==8.3.4

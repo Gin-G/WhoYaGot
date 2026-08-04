@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: whoyagot
+      POSTGRES_PASSWORD: whoyagot
+      POSTGRES_DB: whoyagot
+    ports:
+      - '5433:5432'
+    volumes:
+      - whoyagot-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U whoyagot']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://whoyagot:whoyagot@db:5432/whoyagot
+      NFL_API_URL: ${NFL_API_URL:-https://nfl-api.nickknows.net}
+      GOOGLE_CLIENT_IDS: ${GOOGLE_CLIENT_IDS:-}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:4173,https://localhost,capacitor://localhost}
+    ports:
+      - '8000:8000'
+
+  web:
+    build: ./frontend
+    depends_on:
+      - api
+    environment:
+      # nginx proxies /api here; the browser only ever sees a same-origin call.
+      API_UPSTREAM: http://api:8000
+      PUBLIC_API_URL: /api
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    ports:
+      - '8080:8080'
+
+volumes:
+  whoyagot-db:
