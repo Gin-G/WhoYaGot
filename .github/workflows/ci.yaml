@@ -4,7 +4,10 @@
 name: CI
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Keyed by the calling workflow as well as the ref: when the container
+  # workflow calls this one, both are in flight for the same ref, and a shared
+  # group would have them cancel each other.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 on:
