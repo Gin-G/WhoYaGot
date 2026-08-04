@@ -53,8 +53,6 @@ jobs:
           context: ./backend
           load: true
           tags: whoyagot-api:ci
-          cache-from: type=gha,scope=whoyagot-api
-          cache-to: type=gha,mode=max,scope=whoyagot-api
 
       - name: Build web image
         uses: docker/build-push-action@v6
@@ -62,8 +60,6 @@ jobs:
           context: ./frontend
           load: true
           tags: whoyagot-web:ci
-          cache-from: type=gha,scope=whoyagot-web
-          cache-to: type=gha,mode=max,scope=whoyagot-web
 
       - name: Start the stack
         run: |
@@ -141,7 +137,6 @@ jobs:
             ncging/whoyagot-api:latest
             ncging/whoyagot-api:${{ steps.date.outputs.date }}
             ncging/whoyagot-api:${{ github.sha }}
-          cache-from: type=gha,scope=whoyagot-api
 
       - name: Push web image
         if: steps.registry.outputs.publish == 'true'
@@ -153,4 +148,3 @@ jobs:
             ncging/whoyagot-web:latest
             ncging/whoyagot-web:${{ steps.date.outputs.date }}
             ncging/whoyagot-web:${{ github.sha }}
-          cache-from: type=gha,scope=whoyagot-web
