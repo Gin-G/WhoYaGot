@@ -45,10 +45,14 @@ googleClientId: ""
 # should use for PUBLIC_API_URL.
 ingress:
   enabled: true
+  className: traefik
   fqdn: whoyagot.nickknows.net
   path: /
   clusterIssuer: letsencrypt-cloudflare
   externalDnsTarget: "8.44.158.127"
+  # Attach a Traefik security-headers Middleware (HSTS, nosniff, frame-deny).
+  # No CSP, so Google sign-in and remote headshot images keep working.
+  securityHeaders: true
 
 # ── Player sync ──────────────────────────────────────────────────────────────
 sync:

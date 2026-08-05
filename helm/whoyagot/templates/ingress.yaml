@@ -11,18 +11,13 @@ metadata:
     app: {{ .Values.web.name }}
     group: {{ .Values.group }}
   annotations:
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/ssl-passthrough: "false"
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
-    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
     cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
-    kubernetes.io/ingress-class: nginx
     external-dns.alpha.kubernetes.io/target: {{ .Values.ingress.externalDnsTarget | quote }}
+    {{- if .Values.ingress.securityHeaders }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-security-headers@kubernetescrd" .Release.Namespace .Values.group | quote }}
+    {{- end }}
 spec:
-  ingressClassName: nginx
+  ingressClassName: {{ .Values.ingress.className }}
   tls:
     - hosts:
         - {{ .Values.ingress.fqdn }}

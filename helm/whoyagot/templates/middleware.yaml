@@ -1,0 +1,27 @@
+{{- if and .Values.ingress.enabled .Values.ingress.securityHeaders }}
+# Attached to the Ingress by annotation. No Content-Security-Policy: the sign-in
+# button loads Google Identity Services and player headshots come from an
+# external CDN, both of which a default-src 'self' policy would block.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ .Values.group }}-security-headers
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.web.name }}
+    group: {{ .Values.group }}
+spec:
+  headers:
+    contentTypeNosniff: true
+    browserXssFilter: true
+    frameDeny: true
+    # strict-origin-when-cross-origin rather than no-referrer, so the OAuth
+    # redirect back from Google still carries an origin.
+    referrerPolicy: strict-origin-when-cross-origin
+    permissionsPolicy: "geolocation=(), microphone=(), camera=(), payment=()"
+    # HSTS — the ingress terminates TLS with a cert-manager certificate.
+    forceSTSHeader: true
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true
+    stsPreload: true
+{{- end }}
