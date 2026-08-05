@@ -101,7 +101,10 @@ postgres:
   secretPath: whoyagot
   app:
     name: whoyagot-db
-    owner: ging
+    # Must equal the app-user username in OpenBao (whoyagot/dbuser). CNPG names
+    # the owning role from this field but takes the password from the secret, so
+    # a mismatch bootstraps a role the API can never authenticate as.
+    owner: whoyagot
   superuser:
     userKey: dbsu
     passwordKey: dbsupassw
