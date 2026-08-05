@@ -19,6 +19,28 @@ https://{{ .Values.ingress.fqdn }},https://localhost,capacitor://localhost
 {{- end -}}
 
 {{/*
+Google OAuth client IDs the API accepts, comma separated.
+
+The web client ID plus any other client whose tokens should be honoured — an
+Android build with its own OAuth client gets that client stamped into the
+token's aud, so the API has to know about both. The web pod is deliberately not
+given this list: GSI takes exactly one client_id, and a comma-joined value would
+reach the browser as a single malformed ID.
+*/}}
+{{- define "whoyagot.googleClientIds" -}}
+{{- $ids := list -}}
+{{- if .Values.googleClientId -}}
+{{- $ids = append $ids .Values.googleClientId -}}
+{{- end -}}
+{{- range .Values.extraGoogleClientIds -}}
+{{- if . -}}
+{{- $ids = append $ids . -}}
+{{- end -}}
+{{- end -}}
+{{- join "," $ids -}}
+{{- end -}}
+
+{{/*
 Environment shared by the API deployment and the sync CronJob.
 */}}
 {{- define "whoyagot.apiEnv" -}}

@@ -128,7 +128,9 @@ Set in OpenBao under the `whoyagot` path before the first sync:
 
 `googleClientId` lives in `values.yaml`, not OpenBao — it ships to every browser,
 so it is not a secret. Leaving it empty disables the sign-in button; anonymous
-voting still works.
+voting still works. Any additional OAuth client the API should accept tokens
+from — an Android build with its own — goes in `extraGoogleClientIds`, which the
+API receives and the browser does not.
 
 Once images are published, CI writes each new tag into `helm/whoyagot/values.yaml`
 and commits it, so ArgoCD picks up the deploy on its own. That commit touches
@@ -163,7 +165,10 @@ issues its own JWT. Every later request is one local signature check.
 
 `GOOGLE_CLIENT_IDS` is a list because an Android build using its own OAuth
 client gets that client stamped into the token's `aud` — add the Android client
-ID there too.
+ID there too. In Kubernetes that list is assembled from `googleClientId` plus
+`extraGoogleClientIds`; the two are kept apart because the web pod's
+`GOOGLE_CLIENT_ID` must stay a single value, and a comma-joined one would reach
+the browser as a malformed `client_id`.
 
 ## Android
 

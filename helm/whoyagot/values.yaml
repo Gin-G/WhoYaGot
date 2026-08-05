@@ -34,10 +34,17 @@ web:
   # /api to the API service, so the browser never makes a cross-origin request.
   publicApiUrl: /api
 
-# Google OAuth client ID. Not a secret — it ships to every browser — so it lives
-# in values rather than OpenBao. Empty disables the sign-in button; voting still
-# works anonymously.
-googleClientId: ""
+# Google OAuth *web* client ID — the one the browser runs the sign-in flow with.
+# Not a secret, since it ships to every browser, so it lives here rather than in
+# OpenBao. Empty disables the sign-in button; voting still works anonymously.
+googleClientId: "669358293293-0cl1t2tkdcjf37jlf4msd80p3of82mf9.apps.googleusercontent.com"
+
+# Other OAuth clients whose ID tokens the API should also accept. Google stamps
+# the requesting client into the token's aud, so an Android build signing in with
+# its own client needs that ID listed here. The browser never sees these — it
+# gets googleClientId alone, because GSI takes exactly one.
+extraGoogleClientIds: []
+  # - your-android-client-id.apps.googleusercontent.com
 
 # ── Ingress ──────────────────────────────────────────────────────────────────
 # One hostname. The web pod serves the site and proxies /api to the API, so the

@@ -31,8 +31,10 @@ spec:
             {{- include "whoyagot.apiEnv" . | nindent 12 }}
             - name: CORS_ORIGINS
               value: {{ include "whoyagot.corsOrigins" . | quote }}
+            # Every client whose ID tokens are accepted — web, and Android if it
+            # signs in with its own OAuth client.
             - name: GOOGLE_CLIENT_IDS
-              value: {{ .Values.googleClientId | quote }}
+              value: {{ include "whoyagot.googleClientIds" . | quote }}
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
