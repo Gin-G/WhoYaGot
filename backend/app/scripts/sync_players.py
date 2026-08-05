@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from database.models import Base  # noqa: E402
 from database.session import SessionLocal, engine  # noqa: E402
+from services.sources.base import SourceUnavailable  # noqa: E402
 from services.sync import sync_league  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -31,10 +32,16 @@ def main() -> int:
     Base.metadata.create_all(engine)
 
     with SessionLocal() as db:
-        result = sync_league(db, args.league.lower(), season=args.season)
+        try:
+            result = sync_league(db, args.league.lower(), season=args.season)
+        except SourceUnavailable as exc:
+            # Nothing was written. Failing loudly lets the CronJob retry rather
+            # than recording a success that quietly changed nothing.
+            logging.error("sync aborted: %s", exc)
+            return 1
 
     print(
-        f"{result['league']}: {result['fetched']} in pool "
+        f"{result['league']} {result['season']}: {result['fetched']} in pool "
         f"({result['created']} new, {result['updated']} updated, "
         f"{result['deactivated']} deactivated, {result['ratings_seeded']} ratings seeded)"
     )

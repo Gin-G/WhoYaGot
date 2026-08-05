@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from config import ELO_BASE
 from database.models import Player, PlayerRating, Team
 from services.sources import get_source
+from services.sources.base import SourceUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,17 @@ def sync_players(db: Session, league: str, season: Optional[int] = None) -> dict
     fetched = source.fetch_players(season=season)
 
     existing = {p.external_id: p for p in db.query(Player).filter(Player.league == league).all()}
+
+    # Every player absent from the fetch gets deactivated below, so an empty
+    # fetch would empty the pool and leave matchmaking with nothing to deal.
+    # A league never loses its entire roster; the source is having a bad day.
+    active_before = sum(1 for p in existing.values() if p.active)
+    if not fetched and active_before:
+        raise SourceUnavailable(
+            f"{league}: source returned no players — refusing to deactivate "
+            f"the {active_before} already in the pool"
+        )
+
     seen: set[str] = set()
     created = 0
 
@@ -105,6 +117,9 @@ def sync_players(db: Session, league: str, season: Optional[int] = None) -> dict
 
     result = {
         "league": league,
+        # Which season the pool now reflects. Worth reporting: the source picks
+        # this when the caller does not, and a silently stale one is invisible.
+        "season": fetched[0].season if fetched else None,
         "fetched": len(fetched),
         "created": created,
         "updated": len(fetched) - created,

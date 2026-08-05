@@ -16,6 +16,12 @@ api:
     cpuLimit: "1"
   # Where player data comes from.
   nflApiUrl: https://nfl-api.nickknows.net
+  # Pins the roster sync to one season. Empty works it out from the date — the
+  # league year turns over in March — which is what normal running wants. Set it
+  # to hold the pool on a particular season without a code change; during camp,
+  # for instance, "2025" keeps the tighter post-cuts pool at the cost of showing
+  # last season's teams.
+  nflSeason: ""
 
 # ── Web ──────────────────────────────────────────────────────────────────────
 web:

@@ -46,7 +46,7 @@ Local dev needs the backend and the frontend, in two terminals.
 # Backend — SQLite by default, no Postgres needed
 cd backend
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cd app && ../.venv/bin/python scripts/sync_players.py --league nfl   # ~440 players
+cd app && ../.venv/bin/python scripts/sync_players.py --league nfl   # 400-900 players
 ../.venv/bin/uvicorn main:app --reload --port 8000
 ```
 
@@ -147,6 +147,20 @@ producing something unsignable. Without them, debug APKs still build.
 `sync_players.py` is idempotent and worth running nightly in-season. Players who
 fall off a roster are deactivated rather than deleted, so old votes still
 resolve and a returning player keeps their rating.
+
+**Which season it pulls.** The sync works the season out from the date — the
+league year turns over in March — rather than letting upstream decide. Asked
+without a season, NFL-API answers with the last *completed* one, which through
+an entire offseason means every team label is a year stale. `NFL_SEASON`
+(`api.nflSeason` in the chart) pins it when you want a specific one.
+
+Expect the pool to roughly double from March to the end of August: those are
+90-man camp rosters, and the nightly sync deactivates the cuts on its own once
+teams get down to 53.
+
+An empty answer from a source aborts the sync rather than deactivating
+everyone — a season past the end of the data returns `200` with no rows, and
+taken at face value that would empty the pool.
 
 There is also `POST /admin/sync?league=nfl`, guarded by an `X-Admin-Token`
 header, for driving the same thing from a Kubernetes CronJob.

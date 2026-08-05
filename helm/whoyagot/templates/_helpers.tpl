@@ -58,4 +58,8 @@ Environment shared by the API deployment and the sync CronJob.
   value: {{ include "whoyagot.databaseUrl" . | quote }}
 - name: NFL_API_URL
   value: {{ .Values.api.nflApiUrl | quote }}
+{{- if .Values.api.nflSeason }}
+- name: NFL_SEASON
+  value: {{ .Values.api.nflSeason | quote }}
+{{- end }}
 {{- end -}}

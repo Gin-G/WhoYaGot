@@ -11,6 +11,14 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+class SourceUnavailable(Exception):
+    """Upstream answered, but not with a usable roster.
+
+    Distinct from a transport error: the call succeeded and returned nothing.
+    Callers must not read that as "every player left the league".
+    """
+
+
 @dataclass
 class SourceTeam:
     abbr: str
