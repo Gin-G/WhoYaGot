@@ -202,11 +202,36 @@ is no server in front of a webview to inject one.
 The webview origin is `https://localhost`, which must be in the API's
 `CORS_ORIGINS` (it is by default).
 
-**Not yet wired:** native Google Sign-In. Google blocks its web sign-in flow
-inside webviews, so the in-app button will not complete on Android as it stands.
-It needs a native plugin (`@capacitor-community/google-auth` or similar) feeding
-its ID token into the same `POST /auth/google` the web path uses — the backend
-needs no changes. Anonymous voting works on Android today.
+### Sign-in on Android
+
+Google blocks its web sign-in flow inside a webview, so Android goes through
+Play Services natively — `@codetrix-studio/capacitor-google-auth`, picked
+because it is the only maintained build that peers to Capacitor 6. `auth.tsx`
+branches on `Capacitor.isNativePlatform()`; both paths end at the same
+`POST /auth/google` with an ID token, and the backend cannot tell them apart.
+
+**Android signs in against the *web* client, not its own.** `requestIdToken`
+takes a server client ID, and Google puts that in the token's `aud` — the
+Android OAuth client goes in `azp`. So `GOOGLE_CLIENT_IDS` needs only the web
+ID, and `extraGoogleClientIds` stays empty. An Android OAuth client must still
+exist in the same project, or Play Services refuses the request with a bare
+`DEVELOPER_ERROR`:
+
+| Field | |
+|---|---|
+| Type | Android |
+| Package name | `net.nickknows.whoyagot` |
+| SHA-1 | the fingerprint of every keystore you sign with |
+
+That last row is the one that bites. Each signing key needs its own registered
+fingerprint, and CI generates a throwaway debug keystore on each run — so
+**native sign-in never works in a CI debug APK**, only in a signed release
+build. `keytool -list -v -keystore <ks>` prints the fingerprint.
+
+The client ID reaches the app through `capacitor.config.ts`, which reads
+`VITE_GOOGLE_CLIENT_ID` at build time and `cap sync` bakes into
+`capacitor.config.json`. Unset, the plugin block is omitted entirely and the
+sign-in button hides itself rather than failing on tap.
 
 ## API
 

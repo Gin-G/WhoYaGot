@@ -1,3 +1,5 @@
+import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth'
+import { Capacitor } from '@capacitor/core'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
@@ -7,6 +9,11 @@ import { GOOGLE_CLIENT_ID } from './runtimeConfig'
 import { clearToken, getSessionId, getToken, setToken } from './session'
 
 const GSI_SRC = 'https://accounts.google.com/gsi/client'
+
+// Google refuses its web sign-in flow inside a webview, so the Android build
+// cannot use GSI at all — it goes through Play Services natively instead. Both
+// paths end at the same place: an ID token posted to POST /auth/google.
+const IS_NATIVE = Capacitor.isNativePlatform()
 
 interface AuthState {
   user: User | null
@@ -49,6 +56,26 @@ function loadGsi(): Promise<void> {
     document.head.appendChild(script)
   })
   return gsiPromise
+}
+
+/** Play Services reports a dismissed account picker as error 12501. */
+function isCancellation(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err ?? '')
+  return message.includes('12501') || /cancel/i.test(message)
+}
+
+let nativePromise: Promise<void> | null = null
+
+/** Idempotent: initialize() builds the Play Services client, so it runs once. */
+function initNative(): Promise<void> {
+  if (!nativePromise) {
+    nativePromise = GoogleAuth.initialize({
+      clientId: GOOGLE_CLIENT_ID,
+      scopes: ['profile', 'email'],
+      grantOfflineAccess: false,
+    })
+  }
+  return nativePromise
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -94,6 +121,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setError(null)
     try {
+      if (IS_NATIVE) {
+        await initNative()
+        const account = await GoogleAuth.signIn()
+        const idToken = account.authentication?.idToken
+        if (!idToken) throw new Error('Google signed you in but returned no ID token.')
+        try {
+          await exchange(idToken)
+        } catch {
+          setError('Google accepted the sign-in but the server rejected it.')
+        }
+        return
+      }
+
       await loadGsi()
       window.google!.accounts.id.initialize({
         client_id: GOOGLE_CLIENT_ID,
@@ -107,11 +147,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       window.google!.accounts.id.prompt()
     } catch (err) {
+      // Backing out of the native account picker is a choice, not a failure.
+      if (isCancellation(err)) return
       setError(err instanceof Error ? err.message : 'Sign-in failed.')
     }
   }, [exchange])
 
   const signOut = useCallback(() => {
+    // Without this Play Services hands back the same account next time and
+    // signing out looks broken to anyone trying to switch.
+    if (IS_NATIVE) void GoogleAuth.signOut().catch(() => undefined)
     clearToken()
     setUser(null)
   }, [])
