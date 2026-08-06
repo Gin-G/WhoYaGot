@@ -1,5 +1,6 @@
 import type { PlayerCard } from '../api/types'
 import { fieldFor } from '../lib/color'
+import { useFitText } from '../lib/fitText'
 
 // Generational suffixes belong with the surname, not billed as one. The league
 // is full of them — without this, "Marvin Harrison Jr." reads as a giant "JR."
@@ -55,6 +56,11 @@ export function PlayerHalf({
   const { given, family } = splitName(player.name)
   const dim = field.text === '#F5F3EF' ? 'rgba(245,243,239,0.62)' : 'rgba(20,23,26,0.62)'
 
+  // The surname carries the card, so it gets more room to shrink into than the
+  // given name above it before either is allowed to clip.
+  const givenRef = useFitText<HTMLDivElement>(given, 0.62)
+  const familyRef = useFitText<HTMLDivElement>(family, 0.42)
+
   // Side B mirrors side A so the two halves rotate about the seam rather than
   // repeating — on phones that puts both headshots against the outer edges.
   const mirrored = side === 'b'
@@ -80,7 +86,9 @@ export function PlayerHalf({
           overprint each other. */}
       <div
         className={[
-          'absolute flex items-center gap-3 px-5 py-4 md:flex-col md:justify-end md:gap-4 md:px-8',
+          // Tighter gutters than the desktop layout: on a phone that width is
+          // better spent on the name than on margin.
+          'absolute flex items-center gap-2 px-3 py-4 md:flex-col md:justify-end md:gap-4 md:px-8',
           side === 'a'
             ? 'left-0 right-0 top-0 h-1/2 md:right-auto md:h-full md:w-1/2'
             : 'bottom-0 left-0 right-0 h-1/2 md:bottom-auto md:left-auto md:right-0 md:top-0 md:h-full md:w-1/2',
@@ -119,11 +127,13 @@ export function PlayerHalf({
           ].join(' ')}
         >
           {given && (
-            <div className="name-given truncate" style={{ color: dim }}>
+            <div ref={givenRef} className="name-given name-fit" style={{ color: dim }}>
               {given}
             </div>
           )}
-          <div className="name-family break-words">{family}</div>
+          <div ref={familyRef} className="name-family name-fit">
+            {family}
+          </div>
 
           <div
             className={[

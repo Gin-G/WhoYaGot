@@ -61,6 +61,13 @@
     font-stretch: 76%;
     @apply text-name-lg font-extrabold uppercase;
   }
+
+  /* One line, measured and scaled to fit by useFitText. overflow-hidden is the
+     backstop for a name still too long at the minimum size — clipping one
+     extreme outlier beats wrapping every long name. */
+  .name-fit {
+    @apply overflow-hidden whitespace-nowrap;
+  }
 }
 
 @layer components {

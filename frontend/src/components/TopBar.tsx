@@ -1,7 +1,40 @@
+import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 
 import type { League } from '../api/types'
 import { useAuth } from '../lib/auth'
+
+function Initial({ label }: { label: string }) {
+  return (
+    <span className="sign flex h-8 w-8 items-center justify-center rounded-full border-2 border-ink text-[0.62rem]">
+      {label.slice(0, 1)}
+    </span>
+  )
+}
+
+/**
+ * Google's avatar host is reachable from the Android webview, but the image
+ * still does not always paint there. Falling back to the initial keeps a
+ * signed-in account looking signed in instead of showing an empty ring.
+ */
+function Avatar({ src, label }: { src: string; label: string }) {
+  const [failed, setFailed] = useState(false)
+
+  // A new account means a new URL that deserves its own attempt.
+  useEffect(() => setFailed(false), [src])
+
+  if (failed) return <Initial label={label} />
+
+  return (
+    <img
+      src={src}
+      alt=""
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+      className="h-8 w-8 rounded-full border-2 border-ink object-cover"
+    />
+  )
+}
 
 const NAV = [
   { to: '/', label: 'Pick', end: true },
@@ -83,15 +116,9 @@ export function TopBar({ leagues, league, onLeagueChange }: Props) {
               className="flex items-center gap-2"
             >
               {user.picture ? (
-                <img
-                  src={user.picture}
-                  alt=""
-                  className="h-8 w-8 rounded-full border-2 border-ink object-cover"
-                />
+                <Avatar src={user.picture} label={user.name ?? user.email ?? '?'} />
               ) : (
-                <span className="sign flex h-8 w-8 items-center justify-center rounded-full border-2 border-ink text-[0.62rem]">
-                  {(user.name ?? user.email ?? '?').slice(0, 1)}
-                </span>
+                <Initial label={user.name ?? user.email ?? '?'} />
               )}
             </button>
           ) : (
