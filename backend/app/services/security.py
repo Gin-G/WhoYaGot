@@ -68,10 +68,16 @@ def upsert_user(db: Session, claims: dict) -> User:
         user = User(google_sub=google_sub)
         db.add(user)
 
-    # Refresh the profile every sign-in; people change names and avatars.
-    user.email = claims.get("email")
-    user.name = claims.get("name") or claims.get("email")
-    user.picture = claims.get("picture")
+    # Refresh the profile every sign-in; people change names and avatars. Only
+    # where the token actually says so, though: clients differ in which claims
+    # they include, and a sign-in from a thinner one must not blank a profile
+    # that a richer one already filled in.
+    if claims.get("email"):
+        user.email = claims["email"]
+    if claims.get("name") or claims.get("email"):
+        user.name = claims.get("name") or claims.get("email")
+    if claims.get("picture"):
+        user.picture = claims["picture"]
     user.last_seen_at = utcnow()
 
     db.flush()
