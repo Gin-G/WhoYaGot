@@ -58,7 +58,7 @@ class ProxySchemeMiddleware:
 app = FastAPI(
     title="WhoYaGot API",
     description="Player-vs-player preference voting across leagues",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 app.add_middleware(ProxySchemeMiddleware)
