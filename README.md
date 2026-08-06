@@ -192,9 +192,14 @@ build locally:
 ```bash
 cd frontend
 echo "VITE_API_URL=https://your-api-host" >> .env   # required: no dev proxy in a webview
+export VITE_GOOGLE_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
 npm run android:sync
 npm run android:open        # needs Android Studio
 ```
+
+`VITE_GOOGLE_CLIENT_ID` has to be exported, not just written to `.env`: Vite
+reads `.env` for the web build, but `capacitor.config.ts` is a separate Node
+process that only sees the real environment.
 
 Unlike the web image, the Android build compiles its API URL in, because there
 is no server in front of a webview to inject one.

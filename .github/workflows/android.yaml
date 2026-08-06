@@ -16,6 +16,8 @@
 #
 # Repo variables:
 #   PUBLIC_API_URL            - absolute API URL, e.g. https://whoyagot-api.nickknows.net
+#   GOOGLE_CLIENT_ID          - OAuth *web* client ID; enables native sign-in.
+#                               Needed by both the web build and `cap sync`.
 
 name: Android
 
@@ -79,6 +81,11 @@ jobs:
 
       - name: Sync into the Android project
         working-directory: frontend
+        # capacitor.config.ts reads this to bake the GoogleAuth block into
+        # capacitor.config.json. The web build having it is not enough — this
+        # is a separate Node process.
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
         run: npx cap sync android
 
       - name: Assemble debug APK
@@ -154,6 +161,11 @@ jobs:
 
       - name: Sync into the Android project
         working-directory: frontend
+        # capacitor.config.ts reads this to bake the GoogleAuth block into
+        # capacitor.config.json. The web build having it is not enough — this
+        # is a separate Node process.
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
         run: npx cap sync android
 
       - name: Set the version from the tag
