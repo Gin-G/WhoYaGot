@@ -92,10 +92,18 @@ jobs:
         working-directory: frontend/android
         run: ./gradlew --no-daemon assembleDebug
 
+      # Debug builds have no tag to name themselves after, so the commit does.
+      - name: Name the artifact for humans
+        run: |
+          mkdir -p release
+          cp frontend/android/app/build/outputs/apk/debug/app-debug.apk \
+             "release/wyg_debug_${GITHUB_SHA:0:7}.apk"
+          ls -l release
+
       - uses: actions/upload-artifact@v4
         with:
           name: whoyagot-debug-apk
-          path: frontend/android/app/build/outputs/apk/debug/*.apk
+          path: release/*
           if-no-files-found: error
 
   release:
@@ -202,17 +210,23 @@ jobs:
         working-directory: frontend/android
         run: rm -f release.jks keystore.properties
 
+      # Gradle names every build app-release, which tells you nothing once it is
+      # sitting in a phone's downloads folder next to the last three.
+      - name: Name the artifacts for humans
+        run: |
+          NAME="wyg_$(printf '%s' "$GITHUB_REF_NAME" | tr '.' '_')"
+          mkdir -p release
+          cp frontend/android/app/build/outputs/apk/release/app-release.apk "release/${NAME}.apk"
+          cp frontend/android/app/build/outputs/bundle/release/app-release.aab "release/${NAME}.aab"
+          ls -l release
+
       - uses: actions/upload-artifact@v4
         with:
           name: whoyagot-release
-          path: |
-            frontend/android/app/build/outputs/bundle/release/*.aab
-            frontend/android/app/build/outputs/apk/release/*.apk
+          path: release/*
           if-no-files-found: error
 
       - name: Attach to the GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            frontend/android/app/build/outputs/bundle/release/*.aab
-            frontend/android/app/build/outputs/apk/release/*.apk
+          files: release/*

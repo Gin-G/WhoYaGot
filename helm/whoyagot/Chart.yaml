@@ -2,8 +2,8 @@ apiVersion: v2
 name: whoyagot
 description: A Helm chart for WhoYaGot — player-vs-player preference voting
 type: application
-version: 0.2.2
-appVersion: "0.2.2"
+version: 0.2.3
+appVersion: "0.2.3"
 home: https://github.com/Gin-G/WhoYaGot
 sources:
   - https://github.com/Gin-G/WhoYaGot
