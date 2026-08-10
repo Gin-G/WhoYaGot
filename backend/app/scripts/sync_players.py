@@ -15,6 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from database.migrate import ensure_columns  # noqa: E402
 from database.models import Base  # noqa: E402
 from database.session import SessionLocal, engine  # noqa: E402
 from services.sources.base import SourceUnavailable  # noqa: E402
@@ -30,6 +31,9 @@ def main() -> int:
     args = parser.parse_args()
 
     Base.metadata.create_all(engine)
+    # The sync writes usage scores, so the column has to exist even if the API
+    # process that normally adds it has not restarted yet.
+    ensure_columns(engine)
 
     with SessionLocal() as db:
         try:
