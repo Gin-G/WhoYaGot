@@ -5,6 +5,7 @@ import { describeError } from './api/client'
 import { useLeagues } from './api/hooks'
 import { StatusNote } from './components/StatusNote'
 import { TopBar } from './components/TopBar'
+import { HistoryPage } from './pages/HistoryPage'
 import { MyListPage } from './pages/MyListPage'
 import { RankingsPage } from './pages/RankingsPage'
 import { VotePage } from './pages/VotePage'
@@ -75,6 +76,7 @@ export default function App() {
             <Route path="/" element={<VotePage {...shared} />} />
             <Route path="/rankings" element={<RankingsPage {...shared} />} />
             <Route path="/my-list" element={<MyListPage {...shared} />} />
+            <Route path="/picks" element={<HistoryPage {...shared} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         )}

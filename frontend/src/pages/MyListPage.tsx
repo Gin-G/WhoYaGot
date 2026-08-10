@@ -63,7 +63,7 @@ export function MyListPage({ league, positions, position, onPositionChange }: Pr
           ) : query.data && query.data.entries.length > 0 ? (
             <ol>
               {query.data.entries.map((entry) => (
-                <RankingRow key={entry.player.id} entry={entry} />
+                <RankingRow key={entry.player.id} entry={entry} showPicks />
               ))}
             </ol>
           ) : (

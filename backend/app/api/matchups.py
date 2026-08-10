@@ -99,17 +99,16 @@ def cast_vote(
 
     ratings = elo.record_result(db, winner, loser, user_id=user_id)
 
-    db.add(
-        Vote(
-            matchup_id=matchup.id,
-            league=matchup.league,
-            position=matchup.position,
-            winner_id=winner.id,
-            loser_id=loser.id,
-            user_id=user_id,
-            session_id=session_id,
-        )
+    pick = Vote(
+        matchup_id=matchup.id,
+        league=matchup.league,
+        position=matchup.position,
+        winner_id=winner.id,
+        loser_id=loser.id,
+        user_id=user_id,
+        session_id=session_id,
     )
+    db.add(pick)
     matchup.answered = True
     db.commit()
 
@@ -123,6 +122,7 @@ def cast_vote(
 
     return VoteOut(
         recorded=True,
+        pick_id=pick.id,
         league=matchup.league,
         position=matchup.position,
         winner_id=winner.id,

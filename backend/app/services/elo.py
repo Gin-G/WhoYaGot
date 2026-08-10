@@ -14,7 +14,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from config import ELO_BASE
-from database.models import Player, PlayerRating, UserPlayerRating
+from database.models import Player, PlayerRating, UserPlayerRating, Vote
 
 
 def k_factor(votes: int) -> float:
@@ -85,6 +85,59 @@ def record_personal_result(db: Session, user_id: int, winner: Player, loser: Pla
     ladder already counted them, so only the personal one needs to catch up.
     """
     _apply(_get_user(db, user_id, winner), _get_user(db, user_id, loser))
+
+
+def replay(db: Session, league: str, user_id: Optional[int] = None) -> int:
+    """Rebuild ratings from the votes that survive, in the order they were cast.
+
+    Elo is path-dependent: every rating a vote produces is the input to the next
+    one, so a vote that is removed or reversed cannot be unwound by subtracting
+    what it did. The rating it moved has since been used to price a dozen other
+    matchups. The only exact answer is to play the sequence again.
+
+    Costs one pass over the league's votes — a few hundred at this scale, and
+    cheap enough that correctness is not worth trading for. If a league ever
+    reaches the point where this is felt, store the per-vote deltas and unwind
+    the tail instead of the whole history.
+
+    Pass `user_id` to rebuild one person's ladder, or omit it for the global
+    one. Caller commits.
+    """
+    votes = (
+        db.query(Vote)
+        .filter(Vote.league == league)
+        .order_by(Vote.created_at.asc(), Vote.id.asc())
+    )
+
+    if user_id is None:
+        # Reset in place rather than deleting: the sync seeds a rating row for
+        # every active player, and the matchup pool is an inner join onto them.
+        # Dropping the rows would empty the pool of everyone yet to be voted on.
+        db.query(PlayerRating).filter(PlayerRating.league == league).update(
+            {"rating": ELO_BASE, "wins": 0, "losses": 0, "votes": 0}
+        )
+    else:
+        votes = votes.filter(Vote.user_id == user_id)
+        db.query(UserPlayerRating).filter(
+            UserPlayerRating.user_id == user_id, UserPlayerRating.league == league
+        ).delete()
+    db.flush()
+
+    replayed = 0
+    for vote in votes.all():
+        winner = db.get(Player, vote.winner_id)
+        loser = db.get(Player, vote.loser_id)
+        # A player deleted outright would take their votes with them, but a
+        # missing one here must not abort the rebuild of everyone else.
+        if winner is None or loser is None:
+            continue
+        if user_id is None:
+            _apply(_get_global(db, winner), _get_global(db, loser))
+        else:
+            _apply(_get_user(db, user_id, winner), _get_user(db, user_id, loser))
+        replayed += 1
+
+    return replayed
 
 
 def record_result(

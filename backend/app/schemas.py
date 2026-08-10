@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Pydantic response/request models and the Player -> card serializer."""
 
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -60,6 +61,8 @@ class VoteIn(BaseModel):
 
 class VoteOut(BaseModel):
     recorded: bool
+    # The pick's own id, so the client can offer to take it back.
+    pick_id: int
     league: str
     position: str
     winner_id: int
@@ -71,6 +74,29 @@ class VoteOut(BaseModel):
 
 class SkipIn(BaseModel):
     matchup_id: str
+
+
+class PickOut(BaseModel):
+    """One pick the voter made, as they would want to read it back."""
+
+    id: int
+    league: str
+    position: Optional[str] = None
+    created_at: datetime
+    winner: PlayerCard
+    loser: PlayerCard
+
+
+class PicksOut(BaseModel):
+    league: str
+    position: Optional[str] = None
+    player_id: Optional[int] = None
+    total: int
+    picks: list[PickOut]
+
+
+class RevisePickIn(BaseModel):
+    winner_id: int = Field(description="Which of the pair should have won; the other loses")
 
 
 class RankingEntry(BaseModel):

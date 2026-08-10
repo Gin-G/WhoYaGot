@@ -1,7 +1,14 @@
+import { Link } from 'react-router-dom'
+
 import type { RankingEntry } from '../api/types'
 
-/** Rank strip, tote-board style: the number leads, the data is monospace. */
-export function RankingRow({ entry }: { entry: RankingEntry }) {
+/**
+ * Rank strip, tote-board style: the number leads, the data is monospace.
+ *
+ * On your own board the name links to the picks that put him there — when
+ * someone looks misplaced, the next question is always what he beat.
+ */
+export function RankingRow({ entry, showPicks = false }: { entry: RankingEntry; showPicks?: boolean }) {
   const { rank, player } = entry
   const rating = player.rating
   const team = player.team
@@ -33,7 +40,17 @@ export function RankingRow({ entry }: { entry: RankingEntry }) {
       )}
 
       <div className="min-w-0 flex-1">
-        <div className="sign-tight truncate text-[0.8rem] text-ink md:text-sm">{player.name}</div>
+        {showPicks ? (
+          <Link
+            to={`/picks?player=${player.id}`}
+            title={`Every pick ${player.name} was part of`}
+            className="sign-tight block truncate text-[0.8rem] text-ink hover:underline md:text-sm"
+          >
+            {player.name}
+          </Link>
+        ) : (
+          <div className="sign-tight truncate text-[0.8rem] text-ink md:text-sm">{player.name}</div>
+        )}
         <div className="tabular truncate text-[0.65rem] uppercase tracking-wider text-ink-soft">
           {[team?.abbr, player.position, player.jersey_number ? `#${player.jersey_number}` : null]
             .filter(Boolean)

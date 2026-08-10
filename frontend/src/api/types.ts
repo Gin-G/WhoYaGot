@@ -50,6 +50,8 @@ export interface RatingChange {
 
 export interface VoteResult {
   recorded: boolean
+  /** The pick's own id, so it can be taken back. */
+  pick_id: number
   league: string
   position: string
   winner_id: number
@@ -96,4 +98,21 @@ export interface AuthResult {
   token_type: string
   user: User
   votes_claimed: number
+}
+
+export interface Pick {
+  id: number
+  league: string
+  position?: string | null
+  created_at: string
+  winner: PlayerCard
+  loser: PlayerCard
+}
+
+export interface Picks {
+  league: string
+  position?: string | null
+  player_id?: number | null
+  total: number
+  picks: Pick[]
 }

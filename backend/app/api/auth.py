@@ -108,9 +108,26 @@ def me(db: Session = Depends(get_db), user: User = Depends(current_user)):
 
 @router.delete("/me/votes")
 def reset_my_list(db: Session = Depends(get_db), user: User = Depends(current_user)):
-    """Clear the user's personal ladder. Global ratings keep their votes."""
-    removed = (
-        db.query(UserPlayerRating).filter(UserPlayerRating.user_id == user.id).delete()
-    )
+    """Throw away everything this user has voted on.
+
+    The picks go too, not just the ladder they built. Ratings are rebuilt from
+    the surviving votes whenever a pick is undone or revised, so a reset that
+    left the votes behind would quietly come back the first time the user
+    changed their mind about anything.
+
+    Retracted votes stop counting for the crowd as well, which is why the
+    global ladder is replayed rather than left holding them.
+    """
+    leagues = {
+        league
+        for (league,) in db.query(Vote.league).filter(Vote.user_id == user.id).distinct()
+    }
+    discarded = db.query(Vote).filter(Vote.user_id == user.id).delete()
+    removed = db.query(UserPlayerRating).filter(UserPlayerRating.user_id == user.id).delete()
+    db.flush()
+
+    for league in leagues:
+        elo.replay(db, league)
     db.commit()
-    return {"status": "success", "players_reset": removed}
+
+    return {"status": "success", "players_reset": removed, "picks_discarded": discarded}

@@ -40,6 +40,7 @@ const NAV = [
   { to: '/', label: 'Pick', end: true },
   { to: '/rankings', label: 'Rankings', end: false },
   { to: '/my-list', label: 'My list', end: false },
+  { to: '/picks', label: 'Picks', end: false },
 ]
 
 function navClass({ isActive }: { isActive: boolean }): string {

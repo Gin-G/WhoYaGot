@@ -17,6 +17,7 @@ from api.admin import router as admin_router
 from api.auth import router as auth_router
 from api.leagues import router as leagues_router
 from api.matchups import router as matchups_router
+from api.picks import router as picks_router
 from api.players import router as players_router
 from api.rankings import router as rankings_router
 from config import CORS_ORIGINS, GOOGLE_CLIENT_IDS, JWT_SECRET
@@ -76,6 +77,7 @@ app.include_router(leagues_router, prefix="/leagues", tags=["leagues"])
 app.include_router(matchups_router, prefix="/matchups", tags=["matchups"])
 app.include_router(rankings_router, prefix="/rankings", tags=["rankings"])
 app.include_router(players_router, prefix="/players", tags=["players"])
+app.include_router(picks_router, prefix="/picks", tags=["picks"])
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(admin_router, prefix="/admin", tags=["admin"])
 

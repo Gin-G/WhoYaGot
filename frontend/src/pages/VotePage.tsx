@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { describeError } from '../api/client'
-import { useMatchup, useSkip, useVote } from '../api/hooks'
+import { useMatchup, useSkip, useUndoPick, useVote } from '../api/hooks'
 import type { Matchup } from '../api/types'
 import { MatchupStage } from '../components/MatchupStage'
 import { PositionChips } from '../components/PositionChips'
@@ -21,10 +21,15 @@ export function VotePage({ league, positions, position, onPositionChange }: Prop
   const matchupQuery = useMatchup(league, position, Boolean(league))
   const vote = useVote(league, position)
   const skip = useSkip(league, position)
+  const undo = useUndoPick()
 
   const [picked, setPicked] = useState<'a' | 'b' | null>(null)
   const [result, setResult] = useState<{ rating: number; delta: number } | null>(null)
   const [votes, setVotes] = useState<number | null>(null)
+
+  // The pick just made, kept only so it can be taken back. A pick made too
+  // fast is the one you want back, and you want it back immediately.
+  const [last, setLast] = useState<{ id: number; winner: string; loser: string } | null>(null)
 
   // The vote response swaps the next pair into the cache immediately, so the
   // displayed matchup is frozen during the flood — otherwise the half that just
@@ -52,6 +57,7 @@ export function VotePage({ league, positions, position, onPositionChange }: Prop
     async (side: 'a' | 'b') => {
       if (!displayed || picked) return
       const winner = side === 'a' ? displayed.player_a : displayed.player_b
+      const loser = side === 'a' ? displayed.player_b : displayed.player_a
 
       setPicked(side)
       const startedAt = Date.now()
@@ -66,6 +72,7 @@ export function VotePage({ league, positions, position, onPositionChange }: Prop
           delta: outcome.ratings.global.winner.delta,
         })
         setVotes(outcome.total_votes)
+        setLast({ id: outcome.pick_id, winner: winner.name, loser: loser.name })
       } catch {
         // Leave the flood up briefly anyway; the error surfaces below the stage.
       }
@@ -88,6 +95,17 @@ export function VotePage({ league, positions, position, onPositionChange }: Prop
     skip.mutate(displayed.id)
   }, [displayed, picked, skip])
 
+  const handleUndo = useCallback(() => {
+    if (!last || undo.isPending) return
+    undo.mutate(last.id, {
+      onSuccess: () => {
+        setLast(null)
+        setVotes((n) => (n === null ? n : n - 1))
+      },
+    })
+    // The pair on screen is untouched — only the pick behind it is withdrawn.
+  }, [last, undo])
+
   // Keyboard: left/right (or A/B) to pick, S to skip.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -96,10 +114,11 @@ export function VotePage({ league, positions, position, onPositionChange }: Prop
       if (key === 'arrowleft' || key === 'arrowup' || key === 'a') void handlePick('a')
       else if (key === 'arrowright' || key === 'arrowdown' || key === 'b') void handlePick('b')
       else if (key === 's') handleSkip()
+      else if (key === 'u') handleUndo()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [handlePick, handleSkip])
+  }, [handlePick, handleSkip, handleUndo])
 
   const failure = matchupQuery.isError ? describeError(matchupQuery.error) : null
 
@@ -138,12 +157,23 @@ export function VotePage({ league, positions, position, onPositionChange }: Prop
       </div>
 
       <div className="pb-inset flex shrink-0 items-center justify-between gap-3 border-t-2 border-ink px-4 py-2 md:pb-2">
-        <span className="tabular text-[0.65rem] uppercase tracking-wider text-ink-soft">
+        <span className="tabular min-w-0 truncate text-[0.65rem] uppercase tracking-wider text-ink-soft">
           {votes === null ? 'Tap a player' : `${votes} ${votes === 1 ? 'pick' : 'picks'}`}
         </span>
         <span className="sign hidden text-[0.6rem] text-ink-soft md:block">
-          ← → to pick · S to skip
+          ← → to pick · S to skip{last ? ' · U to undo' : ''}
         </span>
+        {last && (
+          <button
+            type="button"
+            onClick={handleUndo}
+            disabled={undo.isPending}
+            title={`Take back ${last.winner} over ${last.loser}`}
+            className="sign shrink-0 border-2 border-signal px-3 py-1.5 text-[0.62rem] text-ink transition-colors hover:bg-signal hover:text-chalk disabled:opacity-35"
+          >
+            Undo
+          </button>
+        )}
         <button
           type="button"
           onClick={handleSkip}
