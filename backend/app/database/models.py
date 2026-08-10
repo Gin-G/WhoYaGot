@@ -73,6 +73,19 @@ class Player(Base):
     # deleting, so historical votes always resolve to a real player.
     active = Column(Boolean, default=True, nullable=False, index=True)
     season = Column(Integer)
+
+    # How much this player is expected to be on the field: the better of what
+    # the source projects for him and what he actually did last season.
+    # Offseason rosters run 90 deep and most of those players never take a snap,
+    # so this is what separates the league from the camp bodies. The scale is
+    # whatever the source uses (fantasy points for the NFL) and is only ever
+    # compared within a position — never across positions or leagues. NULL means
+    # the source knows nothing about him, which is not the same as a zero.
+    #
+    # Unindexed on purpose: it is only ever read behind ix_player_pool, which
+    # narrows to a few hundred rows before this is sorted.
+    usage = Column(Float)
+
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     rating = relationship(

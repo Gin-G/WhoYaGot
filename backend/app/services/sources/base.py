@@ -47,6 +47,8 @@ class SourcePlayer:
     draft_number: Optional[int] = None
     birth_date: Optional[str] = None
     season: Optional[int] = None
+    # How much this player is expected to feature — see Player.usage.
+    usage: Optional[float] = None
 
 
 class PlayerSource(ABC):
@@ -56,6 +58,11 @@ class PlayerSource(ABC):
     display_name: str = ""
     # Positions that form the matchup pool, in the order the UI should tab them.
     positions: list[str] = []
+
+    # How many players at each position are worth voting on, by descending
+    # usage. A position left out of this map keeps its whole roster, which is
+    # also what happens when the source scores nobody's usage.
+    pool_depth: dict[str, int] = {}
 
     @abstractmethod
     def fetch_teams(self) -> list[SourceTeam]:
