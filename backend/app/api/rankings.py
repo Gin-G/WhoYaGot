@@ -18,6 +18,11 @@ router = APIRouter()
 # board (their rating still exists and still moves — it just isn't ranked yet).
 MIN_VOTES_GLOBAL = 5
 
+# The same idea for one person's board, at a threshold their own voting can
+# actually reach: a personal ladder is fed by one voter rather than all of them,
+# so the global bar would leave a new board empty for hundreds of picks.
+MIN_VOTES_PERSONAL = 3
+
 
 @router.get("", response_model=RankingsOut)
 def rankings(
@@ -65,6 +70,7 @@ def my_rankings(
     position: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    min_votes: int = Query(MIN_VOTES_PERSONAL, ge=0),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ):
@@ -75,6 +81,7 @@ def my_rankings(
         db.query(Player, UserPlayerRating)
         .join(UserPlayerRating, UserPlayerRating.player_id == Player.id)
         .filter(UserPlayerRating.user_id == user.id, UserPlayerRating.league == league)
+        .filter(UserPlayerRating.votes >= min_votes)
     )
     if position:
         q = q.filter(Player.position == position.upper())

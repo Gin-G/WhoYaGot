@@ -34,6 +34,7 @@ _PLAYER_FIELDS = (
     "draft_number",
     "birth_date",
     "season",
+    "usage",
 )
 
 

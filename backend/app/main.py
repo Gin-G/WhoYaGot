@@ -25,10 +25,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 try:
+    from database.migrate import ensure_columns
     from database.models import Base
     from database.session import engine
 
     Base.metadata.create_all(engine)
+    ensure_columns(engine)
     logger.info("DB tables verified/created.")
 except Exception as db_startup_err:
     logger.warning("DB unavailable at startup (tables not created): %s", db_startup_err)

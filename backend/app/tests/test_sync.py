@@ -40,11 +40,19 @@ def _roster_row(player_id="00-0001", team="MIA", week=1):
     }
 
 
-def _stub_get(monkeypatch, by_season):
-    """Serve /players/rosters from a {season: rows} mapping."""
+def _stub_get(monkeypatch, by_season, projections=None, stats=None):
+    """Serve the three upstream calls a fetch makes, each from a {season: rows}.
+
+    Returns the seasons the roster call was asked for, in order.
+    """
     calls = []
 
     def fake_get(self, path, **params):
+        if path.startswith("/projections/season/"):
+            season = int(path.rsplit("/", 1)[1])
+            return {"data": (projections or {}).get(season, [])}
+        if path == "/players/stats":
+            return {"data": (stats or {}).get(params["season"], [])}
         season = params["season"]
         calls.append(season)
         return {"season": season, "data": by_season.get(season, [])}
@@ -73,6 +81,122 @@ def test_fetch_players_falls_back_when_the_new_season_is_unpublished(monkeypatch
 
     assert calls[0] == 2027  # asked for the new one first
     assert {p.season for p in players} == {2026}
+
+
+def _projection_row(player_id="00-0001", total_points=120.0):
+    return {"player_id": player_id, "total_points": total_points}
+
+
+def test_players_carry_the_score_that_says_whether_they_will_play(monkeypatch):
+    _stub_get(
+        monkeypatch,
+        {2026: [_roster_row("00-0001"), _roster_row("00-0002")]},
+        projections={2026: [_projection_row("00-0001", 148.5)]},
+    )
+
+    players = {p.external_id: p for p in nfl.NFLSource().fetch_players(season=2026)}
+
+    assert players["00-0001"].usage == 148.5
+    # Nobody projected him, which is itself the answer.
+    assert players["00-0002"].usage is None
+
+
+def test_a_season_nobody_has_projected_still_syncs(monkeypatch):
+    """Rosters get published before anyone projects them; that is not an outage."""
+    _stub_get(monkeypatch, {2026: [_roster_row()]}, projections={})
+
+    players = nfl.NFLSource().fetch_players(season=2026)
+
+    assert [p.usage for p in players] == [None]
+
+
+def test_upstream_losing_the_projections_does_not_fail_the_sync(monkeypatch):
+    import httpx
+
+    def fake_get(self, path, **params):
+        if path.startswith("/projections/") or path == "/players/stats":
+            raise httpx.ConnectError("upstream down")
+        return {"season": 2026, "data": [_roster_row()]}
+
+    monkeypatch.setattr(nfl.NFLSource, "_get", fake_get)
+
+    assert [p.usage for p in nfl.NFLSource().fetch_players(season=2026)] == [None]
+
+
+def _stat_row(player_id, fantasy_points, season_type="REG"):
+    return {"player_id": player_id, "fantasy_points": fantasy_points, "season_type": season_type}
+
+
+def test_a_player_the_model_is_sour_on_is_rescued_by_what_he_actually_did(monkeypatch):
+    """A projection is an opinion; having been on the field is a fact."""
+    _stub_get(
+        monkeypatch,
+        {2026: [_roster_row(f"00-star-{i}") for i in range(5)] + [_roster_row("00-vet")]},
+        # The model likes the five stars and is cold on the veteran.
+        projections={
+            2026: [_projection_row(f"00-star-{i}", 200.0 - i) for i in range(5)]
+            + [_projection_row("00-vet", 3.0)]
+        },
+        # Last season the veteran outproduced everyone but the best of them.
+        stats={
+            2025: [_stat_row("00-star-0", 260.0), _stat_row("00-vet", 240.0)]
+            + [_stat_row(f"00-star-{i}", 20.0) for i in (1, 2, 3, 4)]
+        },
+    )
+
+    players = {p.external_id: p for p in nfl.NFLSource().fetch_players(season=2026)}
+
+    # Second-best last season, so he is worth the second-best projection —
+    # ahead of every star the model ranked above him but one.
+    assert players["00-vet"].usage == 199.0
+    assert players["00-star-0"].usage == 200.0
+
+
+def test_last_season_never_drags_a_well_projected_player_down(monkeypatch):
+    """A rookie's projection stands; a star's bad season does not demote him."""
+    _stub_get(
+        monkeypatch,
+        {2026: [_roster_row("00-rookie"), _roster_row("00-star")]},
+        projections={2026: [_projection_row("00-rookie", 90.0), _projection_row("00-star", 180.0)]},
+        stats={2025: [_stat_row("00-star", 12.0)]},
+    )
+
+    players = {p.external_id: p for p in nfl.NFLSource().fetch_players(season=2026)}
+
+    assert players["00-star"].usage == 180.0  # not demoted to the lower scale slot
+    assert players["00-rookie"].usage == 90.0  # no last season to read
+
+
+def test_the_postseason_is_not_counted_as_playing_time(monkeypatch):
+    """Only twelve teams get one, so it would flatter whoever made the bracket."""
+    _stub_get(
+        monkeypatch,
+        {2026: [_roster_row("00-0001"), _roster_row("00-0002")]},
+        projections={2026: [_projection_row("00-0001", 100.0), _projection_row("00-0002", 20.0)]},
+        stats={2025: [_stat_row("00-0002", 400.0, season_type="POST")]},
+    )
+
+    players = {p.external_id: p for p in nfl.NFLSource().fetch_players(season=2026)}
+
+    assert players["00-0002"].usage == 20.0
+
+
+def test_last_season_is_read_from_last_season(monkeypatch):
+    """Reading this season's own stats would be empty in August and circular later."""
+    seasons = []
+
+    def fake_get(self, path, **params):
+        if path.startswith("/projections/season/"):
+            return {"data": []}
+        if path == "/players/stats":
+            seasons.append(params["season"])
+            return {"data": []}
+        return {"season": 2026, "data": [_roster_row()]}
+
+    monkeypatch.setattr(nfl.NFLSource, "_get", fake_get)
+    nfl.NFLSource().fetch_players(season=2026)
+
+    assert set(seasons) == {2025}
 
 
 def test_an_explicit_season_does_not_fall_back(monkeypatch):
@@ -154,6 +278,26 @@ def test_sync_updates_a_traded_player(db, monkeypatch):
     assert player.season == 2026
     assert result["season"] == 2026
     assert result["created"] == 0
+
+
+def test_sync_stores_the_usage_score(db, monkeypatch):
+    _use_source(
+        monkeypatch,
+        [
+            SourcePlayer(
+                external_id="00-0039075",
+                name="Puka Nacua",
+                position="WR",
+                team_abbr="LA",
+                season=2026,
+                usage=163.9,
+            )
+        ],
+    )
+
+    sync_module.sync_players(db, "nfl")
+
+    assert db.query(Player).one().usage == 163.9
 
 
 def test_players_absent_from_a_real_fetch_still_deactivate(db, monkeypatch, pool):
