@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-Pairing logic: same position, Elo-weighted.
+Pairing logic: Elo-weighted, within a position or across them.
 
 Only the players who will actually see the field are dealt: an offseason roster
 runs 90 deep per team and most of that is camp bodies, so each position is cut
 to its best-projected `pool_depth` before anything else happens.
+
+Pin a position and you get that position. Leave it open and half the matchups
+cross positions — Gibbs or Chase, Allen or Wilson — because that is the question
+a single ranking has to answer, and four ladders that never touch cannot.
 
 From there two goals pull against each other. Ratings converge fastest when
 opponents are closely matched, but every player needs enough votes for their
@@ -43,8 +47,28 @@ COVERAGE_BIAS = 0.5
 ANCHOR_ATTEMPTS = 6
 
 # Pairs the voter has already seen are avoided until they have seen most of the
-# position, at which point repeats are allowed rather than returning nothing.
-MAX_HISTORY = 500
+# pool, at which point repeats are allowed rather than returning nothing. Read
+# across the whole league, not one position, because a pair is a pair.
+MAX_HISTORY = 2000
+
+# Share of matchups that cross positions when the voter has not pinned one.
+CROSS_POSITION_RATE = 0.5
+
+# How far apart in their own positions' pecking orders a cross-position pair may
+# sit, as a fraction of the position, widened until something turns up.
+#
+# Standing rather than rating, because the four ladders have not met and their
+# scales have not converged: TE has a fraction of the votes QB does, so its best
+# player sits at 1577 where the best QB is at 1646. Pairing on the raw number
+# would put the best tight end in the league against a middling quarterback.
+# Pairing on standing asks the question actually worth asking — the best of one
+# against the best of another — and stays right once the scales do merge.
+STANDING_WINDOWS = (0.06, 0.15, 0.30, None)
+
+# Votes at which a player's rating is trusted as much as his projection when
+# working out that standing. Low, because a handful of results at one position
+# already says more about the order than a model does.
+STANDING_TRUST_VOTES = 4
 
 # Share of matchups drawn from players the voter has already ranked, and how
 # many votes they need at a position before that kicks in. Below the threshold
@@ -63,7 +87,9 @@ class NoMatchupAvailable(RuntimeError):
     pass
 
 
-def _pool(db: Session, league: str, position: str) -> list[tuple[Player, PlayerRating]]:
+def _position_pool(
+    db: Session, league: str, position: str
+) -> list[tuple[Player, PlayerRating]]:
     """The players worth voting on at this position.
 
     An offseason roster is 90 deep and most of it never takes a snap, so the
@@ -103,20 +129,69 @@ def _pool(db: Session, league: str, position: str) -> list[tuple[Player, PlayerR
     return q.all()
 
 
+def _pool(
+    db: Session, league: str, positions: list[str]
+) -> list[tuple[Player, PlayerRating]]:
+    """Every position's cut, put together. One position in means one pool out."""
+    pool = []
+    for position in positions:
+        pool.extend(_position_pool(db, league, position))
+    return pool
+
+
+def _standing(pool: list[tuple[Player, PlayerRating]]) -> dict[int, float]:
+    """Where each player sits in his own position, 0.0 best and 1.0 worst.
+
+    Two readings of that, blended by how much the first is worth. Where the
+    pecking order is voted in, it is the voter's own; where it is not, it is
+    what the player is projected to do.
+
+    Neither alone survives contact with a real board. Rating alone is noise
+    exactly where it is needed most — tight ends average barely one vote each,
+    so a backup who won his only matchup outranks a starter nobody has been
+    dealt yet. Projection alone would pair on a model's opinion and ignore
+    everything the voter has said. So a player's rating is trusted in
+    proportion to the votes behind it, and the projection covers the rest.
+    """
+    standing: dict[int, float] = {}
+    by_position: dict[str, list[tuple[Player, PlayerRating]]] = {}
+    for entry in pool:
+        by_position.setdefault(entry[0].position, []).append(entry)
+
+    for group in by_position.values():
+        last = max(len(group) - 1, 1)
+        by_rating = {
+            player.id: place
+            for place, (player, _) in enumerate(
+                sorted(group, key=lambda pr: -pr[1].rating)
+            )
+        }
+        by_usage = {
+            player.id: place
+            for place, (player, _) in enumerate(
+                sorted(group, key=lambda pr: -(pr[0].usage or 0.0))
+            )
+        }
+
+        for player, rating in group:
+            trust = rating.votes / (rating.votes + STANDING_TRUST_VOTES)
+            place = trust * by_rating[player.id] + (1 - trust) * by_usage[player.id]
+            standing[player.id] = place / last
+
+    return standing
+
+
 def _history(
     db: Session,
     league: str,
-    position: str,
     user_id: Optional[int],
     session_id: Optional[str],
 ) -> list[tuple[int, int]]:
-    """Every pair this voter has already judged at this position, newest first."""
+    """Every pair this voter has already judged in this league, newest first."""
     if user_id is None and session_id is None:
         return []
 
-    q = db.query(Vote.winner_id, Vote.loser_id).filter(
-        Vote.league == league, Vote.position == position
-    )
+    q = db.query(Vote.winner_id, Vote.loser_id).filter(Vote.league == league)
     q = q.filter(Vote.user_id == user_id) if user_id is not None else q.filter(
         Vote.session_id == session_id
     )
@@ -135,9 +210,7 @@ def _seen_opponents(history: list[tuple[int, int]], player_id: int) -> set[int]:
     }
 
 
-def _voter_ratings(
-    db: Session, league: str, position: str, user_id: Optional[int]
-) -> dict[int, float]:
+def _voter_ratings(db: Session, league: str, user_id: Optional[int]) -> dict[int, float]:
     """The voter's own Elo — the ordering a consolidation pair tries to settle."""
     if user_id is None:
         return {}
@@ -145,7 +218,6 @@ def _voter_ratings(
     rows = db.query(UserPlayerRating.player_id, UserPlayerRating.rating).filter(
         UserPlayerRating.user_id == user_id,
         UserPlayerRating.league == league,
-        UserPlayerRating.position == position,
     )
     return dict(rows)
 
@@ -218,6 +290,38 @@ def _pick_ranked_pair(
     return random.choices(neighbours, weights)[0] if neighbours else None
 
 
+def _pick_across_positions(
+    anchor: tuple[Player, PlayerRating],
+    pool: list[tuple[Player, PlayerRating]],
+    standing: dict[int, float],
+    exclude: set[int],
+    allow_repeat: bool,
+) -> Optional[tuple[Player, PlayerRating]]:
+    """An opponent from a different position, of comparable standing in his own.
+
+    The best running back against the best receiver is a question worth asking.
+    The best running back against the fortieth receiver is not.
+    """
+    anchor_player = anchor[0]
+    anchor_standing = standing.get(anchor_player.id, 0.5)
+    others = [pr for pr in pool if pr[0].position != anchor_player.position]
+
+    for window in STANDING_WINDOWS:
+        candidates = [pr for pr in others if pr[0].id not in exclude]
+        if window is not None:
+            candidates = [
+                pr
+                for pr in candidates
+                if abs(standing.get(pr[0].id, 0.5) - anchor_standing) <= window
+            ]
+        if candidates:
+            return random.choice(candidates)
+
+    if allow_repeat and others:
+        return random.choice(others)
+    return None
+
+
 def choose_position(league: str, position: Optional[str]) -> str:
     source = get_source(league)
     if position:
@@ -238,40 +342,53 @@ def create_matchup(
     user_id: Optional[int] = None,
     session_id: Optional[str] = None,
 ) -> tuple[Matchup, Player, Player]:
-    """Deal one pair and persist it. Caller commits."""
-    position = choose_position(league, position)
-    pool = _pool(db, league, position)
+    """Deal one pair and persist it. Caller commits.
+
+    A pinned position is honoured exactly. Left open, the deal crosses positions
+    a share of the time — and the matchup it stores has no position of its own,
+    because it does not belong to one.
+    """
+    source = get_source(league)
+    # Asking for a position is asking for that position; only an open request
+    # is free to cross.
+    across = position is None and random.random() < CROSS_POSITION_RATE
+    positions = source.positions if across else [choose_position(league, position)]
+
+    pool = _pool(db, league, positions)
+    wanted = "any position" if across else positions[0]
 
     if len(pool) < 2:
         raise NoMatchupAvailable(
-            f"need at least 2 active {position}s in {league}, found {len(pool)} "
+            f"need at least 2 active players in {league} {wanted}, found {len(pool)} "
             "— run the player sync"
         )
 
-    history = _history(db, league, position, user_id, session_id)
+    history = _history(db, league, user_id, session_id)
 
     anchor = opponent = None
     if len(history) >= RANKED_PAIR_MIN_VOTES and random.random() < RANKED_PAIR_RATE:
-        pair = _pick_ranked_pair(
-            pool, history, _voter_ratings(db, league, position, user_id)
-        )
+        pair = _pick_ranked_pair(pool, history, _voter_ratings(db, league, user_id))
         if pair is not None:
             anchor, opponent = pair
 
     # A heavily-voted player can run out of opponents the voter has not already
     # judged them against. Try other anchors before giving in to a repeat.
     if opponent is None:
+        standing = _standing(pool) if across else {}
         for attempt in range(ANCHOR_ATTEMPTS):
             anchor = _pick_anchor(pool)
             exclude = _seen_opponents(history, anchor[0].id)
-            opponent = _pick_opponent(
-                anchor, pool, exclude, allow_repeat=attempt == ANCHOR_ATTEMPTS - 1
+            last_try = attempt == ANCHOR_ATTEMPTS - 1
+            opponent = (
+                _pick_across_positions(anchor, pool, standing, exclude, last_try)
+                if across
+                else _pick_opponent(anchor, pool, exclude, allow_repeat=last_try)
             )
             if opponent is not None:
                 break
 
     if anchor is None or opponent is None:
-        raise NoMatchupAvailable(f"no eligible opponent in {league} {position}")
+        raise NoMatchupAvailable(f"no eligible opponent in {league} {wanted}")
 
     # Randomise side so the anchor is not always on the left.
     a, b = (anchor[0], opponent[0]) if random.random() < 0.5 else (opponent[0], anchor[0])
@@ -279,7 +396,9 @@ def create_matchup(
     matchup = Matchup(
         id=uuid.uuid4().hex,
         league=league,
-        position=position,
+        # No position when the pair crosses them: the matchup belongs to the
+        # league, and a follow-up dealt from it should be free to cross again.
+        position=None if a.position != b.position else a.position,
         player_a_id=a.id,
         player_b_id=b.id,
         user_id=user_id,

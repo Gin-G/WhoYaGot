@@ -49,7 +49,8 @@ class PlayerCard(BaseModel):
 class MatchupOut(BaseModel):
     id: str
     league: str
-    position: str
+    # None when the pair crosses positions — it belongs to no single one.
+    position: Optional[str] = None
     player_a: PlayerCard
     player_b: PlayerCard
 
@@ -64,7 +65,7 @@ class VoteOut(BaseModel):
     # The pick's own id, so the client can offer to take it back.
     pick_id: int
     league: str
-    position: str
+    position: Optional[str] = None
     winner_id: int
     loser_id: int
     ratings: dict

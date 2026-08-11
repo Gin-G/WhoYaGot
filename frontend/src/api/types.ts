@@ -38,7 +38,8 @@ export interface PlayerCard {
 export interface Matchup {
   id: string
   league: string
-  position: string
+  /** Absent when the pair crosses positions. */
+  position?: string | null
   player_a: PlayerCard
   player_b: PlayerCard
 }
@@ -53,7 +54,7 @@ export interface VoteResult {
   /** The pick's own id, so it can be taken back. */
   pick_id: number
   league: string
-  position: string
+  position?: string | null
   winner_id: number
   loser_id: number
   ratings: {

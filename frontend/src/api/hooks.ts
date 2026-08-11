@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiClient } from './client'
+
+/** Asks for no position filter, as opposed to saying nothing at all. */
+const MIX = 'mix'
 import type { League, Matchup, Picks, Rankings, VoteResult } from './types'
 
 export function useLeagues() {
@@ -41,10 +44,14 @@ export function useVote(league: string, position: string | null) {
 
   return useMutation({
     mutationFn: async (vars: { matchupId: string; winnerId: number }) => {
-      const { data } = await apiClient.post<VoteResult>('/matchups/vote', {
-        matchup_id: vars.matchupId,
-        winner_id: vars.winnerId,
-      })
+      const { data } = await apiClient.post<VoteResult>(
+        '/matchups/vote',
+        { matchup_id: vars.matchupId, winner_id: vars.winnerId },
+        // The follow-up comes from what the voter has selected, not from the
+        // pair they were just dealt. Without this a mixed session pins itself
+        // to whichever position the first same-position pair happened to be.
+        { params: { next_position: position ?? MIX } },
+      )
       return data
     },
     onSuccess: (result) => {
@@ -63,7 +70,11 @@ export function useSkip(league: string, position: string | null) {
 
   return useMutation({
     mutationFn: async (matchupId: string) => {
-      const { data } = await apiClient.post<Matchup>('/matchups/skip', { matchup_id: matchupId })
+      const { data } = await apiClient.post<Matchup>(
+        '/matchups/skip',
+        { matchup_id: matchupId },
+        { params: { next_position: position ?? MIX } },
+      )
       return data
     },
     onSuccess: (next) => {

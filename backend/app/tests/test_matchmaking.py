@@ -125,6 +125,202 @@ def test_a_player_below_the_cut_keeps_the_rating_he_earned(db, make_pool, monkey
     assert db.get(PlayerRating, fringe.id).rating == 1610.0
 
 
+# --- Crossing positions -----------------------------------------------------
+
+
+@pytest.fixture()
+def league_pool(db, make_pool):
+    """A pool at every votable position, not just quarterbacks."""
+    make_pool(12)
+    players = []
+    for position in ("RB", "WR", "TE"):
+        for i in range(12):
+            player = Player(
+                league="nfl",
+                external_id=f"{position}-{i:04d}",
+                name=f"Test {position}{i}",
+                position=position,
+                team_abbr="BUF",
+                active=True,
+            )
+            db.add(player)
+            players.append(player)
+    db.flush()
+    for player in players:
+        db.add(
+            PlayerRating(
+                player_id=player.id, league="nfl", position=player.position, rating=1500.0
+            )
+        )
+    db.commit()
+    return players
+
+
+def test_an_open_request_crosses_positions(db, league_pool):
+    """Gibbs or Chase is the question a single ranking has to answer."""
+    crossed = 0
+    for _ in range(200):
+        _, a, b = matchmaking.create_matchup(db, "nfl")
+        if a.position != b.position:
+            crossed += 1
+    db.commit()
+
+    assert 0.3 < crossed / 200 < 0.7
+
+
+def test_a_pinned_position_is_never_crossed(db, league_pool):
+    for _ in range(80):
+        _, a, b = matchmaking.create_matchup(db, "nfl", position="QB")
+        assert a.position == b.position == "QB"
+    db.commit()
+
+
+def test_a_crossed_matchup_belongs_to_no_position(db, league_pool):
+    """Storing one of the two would pin the follow-up to it."""
+    for _ in range(80):
+        matchup, a, b = matchmaking.create_matchup(db, "nfl")
+        if a.position != b.position:
+            assert matchup.position is None
+        else:
+            assert matchup.position == a.position
+    db.commit()
+
+
+def test_players_are_crossed_against_their_opposite_number(db, league_pool):
+    """The best back against the best receiver, not against the fortieth."""
+    by_position = {}
+    for player in db.query(Player).filter(Player.active.is_(True)).all():
+        by_position.setdefault(player.position, []).append(player)
+
+    # Give every position a clear pecking order on its own scale, and make the
+    # scales disagree — TE spread narrowly, QB widely, as an unmerged ladder is.
+    spread = {"QB": 90.0, "RB": 70.0, "WR": 70.0, "TE": 20.0}
+    place = {}
+    for position, players in by_position.items():
+        for rank, player in enumerate(sorted(players, key=lambda p: p.id)):
+            rating = db.get(PlayerRating, player.id)
+            rating.rating = 1500.0 + spread[position] * (6 - rank)
+            # Voted in, so the standing follows the rating rather than falling
+            # back on what the player was projected to do.
+            rating.votes = 20
+            place[player.id] = rank
+    db.commit()
+
+    gaps = []
+    for _ in range(200):
+        _, a, b = matchmaking.create_matchup(db, "nfl")
+        if a.position != b.position:
+            gaps.append(abs(place[a.id] - place[b.id]))
+    db.commit()
+
+    assert gaps, "no crossed pairs were dealt"
+    # Twelve deep per position, so an unguided draw would average about four
+    # places apart. Standing-matched pairs should sit far closer than that.
+    assert sum(gaps) / len(gaps) < 2.0
+
+
+def test_crossing_survives_a_position_whose_ladder_has_barely_moved(db, league_pool):
+    """The real case: TE had a fifth of QB's votes, so its whole range was tight."""
+    tes = [p for p in db.query(Player).filter(Player.position == "TE").all()]
+    best_te = min(tes, key=lambda p: p.id)
+    for player in db.query(Player).filter(Player.active.is_(True)).all():
+        rating = db.get(PlayerRating, player.id)
+        rating.rating = 1500.0 if player.position == "TE" else 1400.0
+        rating.votes = 20
+    # The best TE is top of his position but numerically below every QB.
+    db.get(PlayerRating, best_te.id).rating = 1577.0
+    for i, player in enumerate(sorted(
+        [p for p in db.query(Player).filter(Player.position == "QB").all()], key=lambda p: p.id
+    )):
+        db.get(PlayerRating, player.id).rating = 1646.0 - i * 10
+    db.commit()
+
+    # Where every player sits in his own position, best first.
+    place = {}
+    for position in ("QB", "RB", "WR", "TE"):
+        group = sorted(
+            db.query(Player).filter(Player.position == position).all(), key=lambda p: p.id
+        )
+        place.update({player.id: rank for rank, player in enumerate(group)})
+
+    faced = []
+    for _ in range(300):
+        _, a, b = matchmaking.create_matchup(db, "nfl")
+        if best_te.id in (a.id, b.id) and a.position != b.position:
+            faced.append(b if a.id == best_te.id else a)
+    db.commit()
+
+    # Which positions he happens to be drawn against over 300 deals is a coin
+    # toss — he comes up in only a handful of crossed pairs. That every one of
+    # them is near the top of its own position is the part that must hold.
+    assert len(faced) >= 2
+    assert all(place[other.id] <= 3 for other in faced), {
+        other.name: place[other.id] for other in faced
+    }
+
+
+def _standing_of(db, players):
+    pool = [(p, db.get(PlayerRating, p.id)) for p in players]
+    return matchmaking._standing(pool)
+
+
+def test_one_lucky_result_does_not_outrank_a_player_nobody_has_seen(db, make_pool):
+    """Tight ends average one vote each; rating alone would be noise there."""
+    players = make_pool(6)
+    for i, player in enumerate(players):
+        player.usage = 200.0 - i * 10  # players[0] is the best projected
+
+    stud, backup = players[0], players[5]
+    # The backup won his only matchup; the stud has never been dealt.
+    backup_rating = db.get(PlayerRating, backup.id)
+    backup_rating.rating, backup_rating.votes = 1540.0, 1
+    db.commit()
+
+    standing = _standing_of(db, players)
+
+    assert standing[stud.id] < standing[backup.id]
+
+
+def test_a_well_voted_rating_outweighs_the_projection(db, make_pool):
+    """Once the voter has really spoken, their opinion carries the pecking order.
+
+    It does not quite overturn it: a player nobody has been dealt sits at his
+    projection at face value, because that projection is the best thing known
+    about him. Discounting the unseen toward the middle would drag every
+    unvoted tight end into mid-tier and lose the best-against-best pairing this
+    exists to produce.
+    """
+    players = make_pool(6)
+    for i, player in enumerate(players):
+        player.usage = 200.0 - i * 10
+
+    # The model's worst is the voter's best, said often enough to mean it.
+    riser = players[5]
+    rating = db.get(PlayerRating, riser.id)
+    rating.rating, rating.votes = 1800.0, 40
+    db.commit()
+
+    standing = _standing_of(db, players)
+    order = sorted(players, key=lambda p: standing[p.id])
+
+    assert order.index(riser) <= 1  # up from last of six
+    assert standing[riser.id] < standing[players[1].id]
+
+
+def test_an_unvoted_position_is_ordered_by_projection_alone(db, make_pool):
+    players = make_pool(5)
+    for i, player in enumerate(players):
+        player.usage = 100.0 - i
+    db.commit()
+
+    standing = _standing_of(db, players)
+
+    # Nothing voted, so the order is exactly the projection's, best to worst.
+    assert sorted(players, key=lambda p: standing[p.id]) == players
+    assert standing[players[0].id] == 0.0
+    assert standing[players[-1].id] == 1.0
+
+
 def test_refuses_a_position_the_league_does_not_vote_on(db, pool):
     with pytest.raises(ValueError, match="not a votable position"):
         matchmaking.create_matchup(db, "nfl", position="LS")
@@ -209,10 +405,10 @@ def test_one_voters_history_does_not_constrain_another(db, pool):
     )
     db.commit()
 
-    history = matchmaking._history(db, "nfl", "QB", None, "v2")
+    history = matchmaking._history(db, "nfl", None, "v2")
     assert matchmaking._seen_opponents(history, a.id) == set()
 
-    history = matchmaking._history(db, "nfl", "QB", None, "v1")
+    history = matchmaking._history(db, "nfl", None, "v1")
     assert matchmaking._seen_opponents(history, a.id) == {b.id}
 
 

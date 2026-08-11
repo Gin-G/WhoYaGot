@@ -34,6 +34,24 @@ def _serialize(db: Session, matchup: Matchup, a: Player, b: Player) -> MatchupOu
     )
 
 
+# What the client sends when it wants no position filter at all, as opposed to
+# saying nothing and leaving the answered matchup's own position to stand in.
+MIX = "mix"
+
+
+def _follow_up_position(requested: Optional[str], answered: Optional[str]) -> Optional[str]:
+    """Which position the next pair should come from.
+
+    The voter's own filter decides it, not the pair they were just dealt. In
+    mixed play a same-position pair still comes up half the time, and reusing
+    its position would pin the rest of the session to whichever one that was —
+    which is exactly why the mix never mixed.
+    """
+    if requested is None:
+        return answered
+    return None if requested.lower() == MIX else requested
+
+
 def _deal(
     db: Session,
     league: str,
@@ -51,7 +69,9 @@ def _deal(
 @router.get("/next", response_model=MatchupOut)
 def next_matchup(
     league: str = Query("nfl"),
-    position: Optional[str] = Query(None, description="Omit to rotate positions randomly"),
+    position: Optional[str] = Query(
+        None, description="Omit to draw from every position, crossing them freely"
+    ),
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(current_user_optional),
     session_id: Optional[str] = Depends(get_session_id),
@@ -70,6 +90,14 @@ def next_matchup(
 def cast_vote(
     payload: VoteIn,
     with_next: bool = Query(True, alias="next", description="Include the following matchup"),
+    next_position: Optional[str] = Query(
+        None,
+        description=(
+            "What the following matchup should be drawn from: a position, or "
+            "'mix' for no filter. Omitted, the answered matchup's own position "
+            "is reused — which is what clients predating this expect."
+        ),
+    ),
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(current_user_optional),
     session_id: Optional[str] = Depends(get_session_id),
@@ -115,7 +143,13 @@ def cast_vote(
     following = None
     if with_next:
         try:
-            following = _deal(db, matchup.league, matchup.position, user_id, session_id)
+            following = _deal(
+                db,
+                matchup.league,
+                _follow_up_position(next_position, matchup.position),
+                user_id,
+                session_id,
+            )
         except (NoMatchupAvailable, ValueError) as exc:
             # The vote is already saved; the client can retry /next on its own.
             logger.warning("could not deal follow-up matchup: %s", exc)
@@ -136,6 +170,9 @@ def cast_vote(
 @router.post("/skip", response_model=MatchupOut)
 def skip_matchup(
     payload: SkipIn,
+    next_position: Optional[str] = Query(
+        None, description="Same meaning as on /vote: a position, or 'mix' for no filter"
+    ),
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(current_user_optional),
     session_id: Optional[str] = Depends(get_session_id),
@@ -147,6 +184,12 @@ def skip_matchup(
 
     user_id, session_id = voter_identity(user, session_id)
     try:
-        return _deal(db, matchup.league, matchup.position, user_id, session_id)
+        return _deal(
+            db,
+            matchup.league,
+            _follow_up_position(next_position, matchup.position),
+            user_id,
+            session_id,
+        )
     except NoMatchupAvailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))

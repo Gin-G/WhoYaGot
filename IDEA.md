@@ -1,6 +1,6 @@
 ---
-status: idea
-progress: 0
+status: active
+progress: 45
 ---
 
 # WhoYaGot
@@ -33,4 +33,31 @@ HTML comments are stripped on read, so this block never reaches the board.
 
 An app that provides player tiles, this player, or that player, so that we can build a database of player preferences for users logged in via Google and overall across all users. It will start with NFL, and then expand to MLB, NHL, NBA, Soccer, Golf, etc. with selectable league tabs
 
+Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The voting loop, both ladders, sign-in and the Android build all work; what is left is the other leagues, and the tuning that only shows up once a board has been used for a while.
+
 ## Todos
+
+- [x] Deal same-position pairs from an Elo-weighted matchup engine
+- [x] Rate players on two ladders, one global and one per signed-in user
+- [x] Sync NFL rosters, teams and headshots from NFL-API, nightly by CronJob
+- [x] Sign in with Google, and carry anonymous votes over to the account
+- [x] Ship the global board, the personal board, and per-position filters
+- [x] Package as a web app and an Android build, deployed by Helm and ArgoCD
+- [x] Stop dealing camp bodies: cut each position to who will actually play
+- [x] Score that cut on projections and last season's real production
+- [x] Add a migration step, since create_all cannot alter an existing table
+- [x] Compare already-ranked players so the top of a board actually sorts
+- [x] Require three votes before a player is ranked on a personal board
+- [x] Undo a pick, revise a pick, and read back the whole history
+- [x] Filter picks to one player, to see who he was actually judged against
+- [x] Cross positions when no position is pinned, matched on standing
+- [ ] Cut an Android release carrying the picks screen and cross-position play
+- [ ] Watch whether a 50/50 cross-position split is the right mix in practice
+- [ ] Revisit pool depth once cross-position votes show what positions are worth
+- [ ] Let the global board be read as one list rather than four ladders
+- [ ] Show a player's head-to-head record on his own card
+- [ ] Link rankings rows to their picks, the way the personal board does
+- [ ] Add an MLB source adapter, the first league after NFL
+- [ ] Add NHL, NBA, Soccer and Golf adapters once MLB proves the shape
+- [ ] Ask NFL-API for expected games played, which the season endpoint lacks
+- [ ] Decide what a matchup means when a player changes team mid-season
