@@ -64,6 +64,11 @@ class PlayerSource(ABC):
     # also what happens when the source scores nobody's usage.
     pool_depth: dict[str, int] = {}
 
+    # The subset of that worth most of a voter's attention — the players anyone
+    # would actually draft. Read the same way as pool_depth; empty means the
+    # whole pool is the core and no distinction is drawn.
+    core_depth: dict[str, int] = {}
+
     @abstractmethod
     def fetch_teams(self) -> list[SourceTeam]:
         """All teams in the league."""

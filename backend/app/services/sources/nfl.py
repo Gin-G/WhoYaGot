@@ -54,6 +54,17 @@ def _depth(spec: str) -> dict[str, int]:
 # committee backfields spread real touches over more bodies than snaps suggest.
 POOL_DEPTH = _depth(os.getenv("NFL_POOL_DEPTH", "QB=48,RB=64,WR=144,TE=80"))
 
+# The players anyone would actually draft — where nearly every matchup comes
+# from. Roughly a 12-team board: about 2.7 QBs, 5 backs, 6 receivers and 2 tight
+# ends per team, 192 in all.
+#
+# Positional, not a flat top-200 by projected points, because points are not a
+# draft board. Taking the best 200 outright lets 89 receivers in and reaches
+# WR77 — deep waiver-wire names nobody has an opinion about. Cutting each
+# position where its draftable players run out lands on the same size and the
+# right names.
+CORE_DEPTH = _depth(os.getenv("NFL_CORE_DEPTH", "QB=32,RB=60,WR=72,TE=28"))
+
 
 def current_season(today: Optional[date] = None) -> int:
     """The season year the league is currently in.
@@ -95,6 +106,7 @@ class NFLSource(PlayerSource):
     display_name = "NFL"
     positions = ["QB", "RB", "WR", "TE"]
     pool_depth = POOL_DEPTH
+    core_depth = CORE_DEPTH
 
     def __init__(self, base_url: str = NFL_API_URL):
         self.base_url = base_url.rstrip("/")

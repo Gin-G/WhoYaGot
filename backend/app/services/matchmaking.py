@@ -54,6 +54,13 @@ MAX_HISTORY = 2000
 # Share of matchups that cross positions when the voter has not pinned one.
 CROSS_POSITION_RATE = 0.5
 
+# Share of matchups drawn from the draftable core rather than the wider pool.
+# The pool is who might play; the core is who anyone would draft. Ranking the
+# fringe against the fringe produces an answer nobody wanted the question to.
+# The remainder is not waste: it is how a player outside the core gets the
+# chance to show he belongs in it, which a hard cut would never allow.
+CORE_RATE = 0.85
+
 # How far apart in their own positions' pecking orders a cross-position pair may
 # sit, as a fraction of the position, widened until something turns up.
 #
@@ -88,7 +95,7 @@ class NoMatchupAvailable(RuntimeError):
 
 
 def _position_pool(
-    db: Session, league: str, position: str
+    db: Session, league: str, position: str, depth: Optional[int]
 ) -> list[tuple[Player, PlayerRating]]:
     """The players worth voting on at this position.
 
@@ -107,7 +114,6 @@ def _position_pool(
         )
     )
 
-    depth = get_source(league).pool_depth.get(position)
     if depth:
         ranked = (
             q.filter(Player.usage.isnot(None))
@@ -130,13 +136,44 @@ def _position_pool(
 
 
 def _pool(
-    db: Session, league: str, positions: list[str]
+    db: Session, league: str, positions: list[str], depths: dict[str, int]
 ) -> list[tuple[Player, PlayerRating]]:
     """Every position's cut, put together. One position in means one pool out."""
     pool = []
     for position in positions:
-        pool.extend(_position_pool(db, league, position))
+        pool.extend(_position_pool(db, league, position, depths.get(position)))
     return pool
+
+
+def _core_ids(
+    pool: list[tuple[Player, PlayerRating]], depths: dict[str, int]
+) -> set[int]:
+    """Who inside the pool anyone would actually draft.
+
+    Taken out of the pool rather than queried separately, so the core is always
+    a subset of what is eligible and the two cannot drift apart. A position with
+    no depth declared contributes all of itself, which is what makes this a
+    no-op for a league that has not drawn the distinction.
+    """
+    if not depths:
+        return {player.id for player, _ in pool}
+
+    by_position: dict[str, list[tuple[Player, PlayerRating]]] = {}
+    for entry in pool:
+        by_position.setdefault(entry[0].position, []).append(entry)
+
+    ids = set()
+    for position, group in by_position.items():
+        depth = depths.get(position)
+        # Nothing scored means nothing to rank a core by. The pool falls back to
+        # the whole roster in that case and so must this, or the "core" would be
+        # whichever players the database happened to return first.
+        if not depth or not any(player.usage is not None for player, _ in group):
+            ids.update(player.id for player, _ in group)
+            continue
+        group = sorted(group, key=lambda pr: -(pr[0].usage or 0.0))
+        ids.update(player.id for player, _ in group[:depth])
+    return ids
 
 
 def _standing(pool: list[tuple[Player, PlayerRating]]) -> dict[int, float]:
@@ -354,14 +391,26 @@ def create_matchup(
     across = position is None and random.random() < CROSS_POSITION_RATE
     positions = source.positions if across else [choose_position(league, position)]
 
-    pool = _pool(db, league, positions)
+    wide = _pool(db, league, positions, source.pool_depth)
     wanted = "any position" if across else positions[0]
 
-    if len(pool) < 2:
+    if len(wide) < 2:
         raise NoMatchupAvailable(
-            f"need at least 2 active players in {league} {wanted}, found {len(pool)} "
+            f"need at least 2 active players in {league} {wanted}, found {len(wide)} "
             "— run the player sync"
         )
+
+    # Nearly every matchup is core against core. The rest is not the same draw
+    # over a bigger pool — that would mostly turn up two core players again and
+    # waste the slot. It is anchored on someone outside the core deliberately,
+    # so the one chance a fringe player gets is a real one, against whoever sits
+    # nearest him.
+    core_ids = _core_ids(wide, source.core_depth)
+    if random.random() < CORE_RATE:
+        pool = anchors = [pr for pr in wide if pr[0].id in core_ids]
+    else:
+        pool = wide
+        anchors = [pr for pr in wide if pr[0].id not in core_ids] or wide
 
     history = _history(db, league, user_id, session_id)
 
@@ -376,7 +425,7 @@ def create_matchup(
     if opponent is None:
         standing = _standing(pool) if across else {}
         for attempt in range(ANCHOR_ATTEMPTS):
-            anchor = _pick_anchor(pool)
+            anchor = _pick_anchor(anchors)
             exclude = _seen_opponents(history, anchor[0].id)
             last_try = attempt == ANCHOR_ATTEMPTS - 1
             opponent = (

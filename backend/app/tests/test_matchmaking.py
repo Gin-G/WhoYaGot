@@ -51,11 +51,18 @@ def _rate_usage(db, players):
     db.commit()
 
 
+def _set_depths(monkeypatch, pool_depth, core_depth=None):
+    """Pin both cuts, so a test about one of them is not answered by the other."""
+    source = matchmaking.get_source("nfl")
+    monkeypatch.setattr(source, "pool_depth", pool_depth)
+    monkeypatch.setattr(source, "core_depth", core_depth if core_depth is not None else pool_depth)
+
+
 def test_only_the_players_who_will_take_the_field_are_dealt(db, make_pool, monkeypatch):
     """A 90-man roster is mostly camp bodies nobody could rank."""
     players = make_pool(40)
     _rate_usage(db, players)
-    monkeypatch.setattr(matchmaking.get_source("nfl"), "pool_depth", {"QB": 10})
+    _set_depths(monkeypatch, {"QB": 10})
 
     for _ in range(60):
         _, a, b = matchmaking.create_matchup(db, "nfl", position="QB")
@@ -71,7 +78,7 @@ def test_the_cut_follows_the_usage_score_not_the_roster_order(db, make_pool, mon
     for player in players[-3:]:
         player.usage = 150.0
     db.commit()
-    monkeypatch.setattr(matchmaking.get_source("nfl"), "pool_depth", {"QB": 3})
+    _set_depths(monkeypatch, {"QB": 3})
 
     dealt = set()
     for _ in range(30):
@@ -84,7 +91,7 @@ def test_the_cut_follows_the_usage_score_not_the_roster_order(db, make_pool, mon
 
 def test_an_unscored_pool_is_dealt_whole_rather_than_emptied(db, pool, monkeypatch):
     """Nothing scored yet is a reason to keep going, not to stop dealing."""
-    monkeypatch.setattr(matchmaking.get_source("nfl"), "pool_depth", {"QB": 4})
+    _set_depths(monkeypatch, {"QB": 4})
 
     dealt = set()
     for _ in range(40):
@@ -98,7 +105,7 @@ def test_an_unscored_pool_is_dealt_whole_rather_than_emptied(db, pool, monkeypat
 def test_a_position_with_no_depth_set_keeps_its_whole_roster(db, make_pool, monkeypatch):
     players = make_pool(12)
     _rate_usage(db, players)
-    monkeypatch.setattr(matchmaking.get_source("nfl"), "pool_depth", {"WR": 4})
+    _set_depths(monkeypatch, {"WR": 4})
 
     dealt = set()
     for _ in range(60):
@@ -115,7 +122,7 @@ def test_a_player_below_the_cut_keeps_the_rating_he_earned(db, make_pool, monkey
     fringe = players[-1]
     db.get(PlayerRating, fringe.id).rating = 1610.0
     db.commit()
-    monkeypatch.setattr(matchmaking.get_source("nfl"), "pool_depth", {"QB": 5})
+    _set_depths(monkeypatch, {"QB": 5})
 
     for _ in range(40):
         _, a, b = matchmaking.create_matchup(db, "nfl", position="QB")
@@ -123,6 +130,88 @@ def test_a_player_below_the_cut_keeps_the_rating_he_earned(db, make_pool, monkey
     db.commit()
 
     assert db.get(PlayerRating, fringe.id).rating == 1610.0
+
+
+# --- The draftable core -----------------------------------------------------
+
+
+def test_most_matchups_come_from_the_players_anyone_would_draft(db, make_pool, monkeypatch):
+    """Ranking the fringe against the fringe answers a question nobody asked."""
+    players = make_pool(40)
+    _rate_usage(db, players)
+    _set_depths(monkeypatch, pool_depth={"QB": 40}, core_depth={"QB": 10})
+    core = {p.id for p in players[:10]}
+
+    both_core = 0
+    for _ in range(400):
+        _, a, b = matchmaking.create_matchup(db, "nfl", position="QB")
+        if a.id in core and b.id in core:
+            both_core += 1
+    db.commit()
+
+    # 85% drawn from the core outright, plus the occasional core pair that the
+    # wider draw turns up anyway.
+    assert 0.80 < both_core / 400 < 0.95
+
+
+def test_a_player_outside_the_core_still_gets_his_chance(db, make_pool, monkeypatch):
+    """A hard cut would never let anyone prove he belongs in the core."""
+    players = make_pool(40)
+    _rate_usage(db, players)
+    _set_depths(monkeypatch, pool_depth={"QB": 40}, core_depth={"QB": 10})
+    outsiders = {p.id for p in players[10:]}
+
+    seen = set()
+    for _ in range(400):
+        _, a, b = matchmaking.create_matchup(db, "nfl", position="QB")
+        seen |= {a.id, b.id} & outsiders
+    db.commit()
+
+    assert len(seen) > 10
+
+
+def test_the_core_is_the_top_of_the_pool_not_a_separate_list(db, make_pool, monkeypatch):
+    players = make_pool(30)
+    _rate_usage(db, players)
+    _set_depths(monkeypatch, pool_depth={"QB": 20}, core_depth={"QB": 6})
+
+    dealt = set()
+    for _ in range(400):
+        _, a, b = matchmaking.create_matchup(db, "nfl", position="QB")
+        dealt |= {a.id, b.id}
+    db.commit()
+
+    # Never anyone below the wider cut, whichever draw was used.
+    assert dealt <= {p.id for p in players[:20]}
+
+
+def test_an_unscored_position_has_no_core_to_speak_of(db, make_pool, monkeypatch):
+    """With nothing scored, a core would just be whatever the DB returned first."""
+    players = make_pool(12)  # deliberately no usage on any of them
+    _set_depths(monkeypatch, pool_depth={"QB": 12}, core_depth={"QB": 4})
+
+    dealt = set()
+    for _ in range(120):
+        _, a, b = matchmaking.create_matchup(db, "nfl", position="QB")
+        dealt |= {a.id, b.id}
+    db.commit()
+
+    assert dealt == {p.id for p in players}
+
+
+def test_a_league_with_no_core_declared_uses_its_whole_pool(db, make_pool, monkeypatch):
+    """core_depth is optional; leaving it out must not empty the draw."""
+    players = make_pool(12)
+    _rate_usage(db, players)
+    _set_depths(monkeypatch, pool_depth={"QB": 8}, core_depth={})
+
+    dealt = set()
+    for _ in range(80):
+        _, a, b = matchmaking.create_matchup(db, "nfl", position="QB")
+        dealt |= {a.id, b.id}
+    db.commit()
+
+    assert dealt == {p.id for p in players[:8]}
 
 
 # --- Crossing positions -----------------------------------------------------
