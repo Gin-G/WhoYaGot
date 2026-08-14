@@ -67,7 +67,12 @@ def _depth(spec: str) -> dict[str, int]:
 # clearing ~350 offensive snaps (a little over 20 a game) worked out to 1.2 QBs,
 # 1.0 RBs, 4.0 WRs and 2.2 TEs per team; RB is set above its snap share because
 # committee backfields spread real touches over more bodies than snaps suggest.
-POOL_DEPTH = _depth(os.getenv("NFL_POOL_DEPTH", "QB=48,RB=64,WR=144,TE=80"))
+#
+# RB sits higher again than that reasoning alone gives. Backfields are the most
+# rotational group on the field, and cutting them at 64 put Alvin Kamara, Tyjae
+# Spears, Brian Robinson and Samaje Perine outside the pool entirely — all of
+# them backs who take real carries and who anyone would have an opinion about.
+POOL_DEPTH = _depth(os.getenv("NFL_POOL_DEPTH", "QB=48,RB=84,WR=144,TE=80"))
 
 # The players anyone would actually draft — where nearly every matchup comes
 # from. Roughly a 12-team board: about 2.7 QBs, 5 backs, 6 receivers and 2 tight
@@ -79,6 +84,11 @@ POOL_DEPTH = _depth(os.getenv("NFL_POOL_DEPTH", "QB=48,RB=64,WR=144,TE=80"))
 # position where its draftable players run out lands on the same size and the
 # right names.
 CORE_DEPTH = _depth(os.getenv("NFL_CORE_DEPTH", "QB=32,RB=60,WR=72,TE=28"))
+
+# Draft slot through which a rookie is worth ranking on his pedigree alone,
+# whatever this season projects for him. Two rounds: past that, a rookie who is
+# not expected to produce is not yet someone anyone argues about.
+EARLY_PICK = int(os.getenv("NFL_EARLY_PICK", "64"))
 
 
 def current_season(today: Optional[date] = None) -> int:
@@ -234,48 +244,117 @@ class NFLSource(PlayerSource):
                 )
         return points
 
+    def _pedigree_floor(
+        self, scale: list[float], group: list[SourcePlayer]
+    ) -> dict[str, float]:
+        """Where a rookie taken early belongs, whatever this season projects.
+
+        Projected points are the right measure of who is worth ranking, with
+        one exception: a rookie drafted at the top who happens to sit behind a
+        veteran. The projection is not wrong about him — a backup quarterback
+        really will score nothing, and the scale collapses off a cliff past the
+        32 starters — but "will not produce this year" and "nobody wants to
+        argue about him" are different claims, and the first overall pick is
+        emphatically the second.
+
+        So an early pick is floored three-quarters of the way down his
+        position's pool: the claim is that he is worth ranking at all, not that
+        he is a starter. Inside the edge rather than on it, because a floor set
+        at the last place in the pool ties him with the player already holding
+        it, and the cut then falls between them arbitrarily.
+
+        In the 2026 class this catches exactly two players, both rookie
+        quarterbacks behind veterans; the other fifteen taken in the top two
+        rounds are already in on their projections.
+        """
+        floors: dict[str, float] = {}
+        if not scale:
+            return floors
+
+        depth = self.pool_depth.get(group[0].position if group else "")
+        if not depth:
+            return floors
+
+        edge = scale[min(depth * 3 // 4, len(scale) - 1)]
+        for player in group:
+            pick = player.draft_number
+            if player.years_exp == 0 and pick is not None and pick <= EARLY_PICK:
+                floors[player.external_id] = edge
+        return floors
+
+    def _place_on(self, scale: list[float], order: list[SourcePlayer]) -> dict[str, float]:
+        """Read an ordering back onto the projection scale.
+
+        `order` is a ranking of players by some signal; `scale` is this
+        position's projections, best first. A player who comes `k`th on the
+        signal is worth whatever the `k`th-best projection is. That is what
+        makes signals on different units — season points, a depth chart —
+        comparable with each other and with the projections themselves.
+        """
+        return {
+            player.external_id: scale[place]
+            for place, player in enumerate(order)
+            if place < len(scale)
+        }
+
     def _rate_usage(self, players: list[SourcePlayer], season: int) -> None:
         """Score each player on how much he is likely to be on the field.
 
-        Two answers to that question, and a player deserves the better of them:
-        what he is projected to do this season, and what he actually did last
-        season. They are not on the same scale — projections are conservative,
-        and a season's real points outrun them — so last season is read as a
-        finishing position and converted to the projection that a player of
-        that standing carries. Comparing where someone placed rather than what
-        he scored keeps the two answers honest against each other.
+        Three answers to that question, and a player deserves the best of them:
+        what he is projected to do this season, what he actually did last
+        season, and where his team lines him up. They are not on the same scale
+        — projections are conservative, a season's real points outrun them, and
+        a depth chart is not points at all — so each is read as a finishing
+        position and converted to the projection a player of that standing
+        carries. Comparing where someone places rather than what he scored is
+        what lets three different units argue with each other.
 
-        Rookies have no last season and keep their projection, which is the
-        only thing anyone has to go on for them.
+        The depth chart is what covers a player the other two cannot see. A
+        rookie has no last season, and a projection built while he was still
+        listed as an unsigned draft pick will say he plays half a game — but
+        his team has already put him second on the depth chart, and that is a
+        fact about September rather than a guess about it.
         """
         by_position: dict[str, list[SourcePlayer]] = {}
         for player in players:
             by_position.setdefault(player.position, []).append(player)
 
+        by_id = {p.external_id: p for p in players}
+
         for position, group in by_position.items():
             produced = self._produced(season - 1, position)
-
-            # The scale: the projections held by this position's rostered
-            # players, best first. Position `k` on it is what a player who
-            # finished `k`th last season is worth.
             scale = sorted((p.usage or 0.0 for p in group), reverse=True)
-            finishers = sorted(
-                (p for p in group if produced.get(p.external_id, 0.0) > 0),
-                key=lambda p: -produced[p.external_id],
-            )
-            earned = {
-                player.external_id: scale[place]
-                for place, player in enumerate(finishers)
-                if place < len(scale)
-            }
 
+            earned = self._place_on(
+                scale,
+                sorted(
+                    (p for p in group if produced.get(p.external_id, 0.0) > 0),
+                    key=lambda p: -produced[p.external_id],
+                ),
+            )
             for player in group:
-                standing = earned.get(player.external_id)
-                # Neither projected nor ever on the field: nothing is known
-                # about him, which is not the same as knowing he is a zero.
-                if player.usage is None and standing is None:
-                    continue
-                player.usage = max(player.usage or 0.0, standing or 0.0)
+                readings = [
+                    reading
+                    for reading in (
+                        player.usage,
+                        earned.get(player.external_id),
+                    )
+                    if reading is not None
+                ]
+                # Nothing known about him at all, which is not the same as
+                # knowing he is a zero.
+                if readings:
+                    player.usage = max(readings)
+
+            # Pedigree goes last, against the scale as it now stands. Measured
+            # against the projections instead, "the last man in the pool" would
+            # mean the 48th-best projection — but the floors above have already
+            # moved players past that, so the boundary it names is no longer
+            # the boundary.
+            settled = sorted((p.usage or 0.0 for p in group), reverse=True)
+            for external_id, floor in self._pedigree_floor(settled, group).items():
+                player = by_id[external_id]
+                player.usage = max(player.usage or 0.0, floor)
 
     def _fetch_season(self, season: int) -> list[SourcePlayer]:
         # A handful of players are listed at two positions in different weeks

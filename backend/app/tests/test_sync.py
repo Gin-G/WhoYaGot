@@ -40,8 +40,11 @@ def _roster_row(player_id="00-0001", team="MIA", week=1):
     }
 
 
-def _stub_get(monkeypatch, by_season, projections=None, stats=None):
-    """Serve the three upstream calls a fetch makes, each from a {season: rows}.
+def _stub_get(monkeypatch, by_season, projections=None, stats=None, depth=None):
+    """Serve the upstream calls a fetch makes, each from a {season: rows} map.
+
+    `depth` is {team: rows} for the depth-chart snapshot; leaving it out means
+    no team has one, which is the outage case.
 
     Returns the seasons the roster call was asked for, in order.
     """
@@ -53,6 +56,10 @@ def _stub_get(monkeypatch, by_season, projections=None, stats=None):
             return {"data": (projections or {}).get(season, [])}
         if path == "/players/stats":
             return {"data": (stats or {}).get(params["season"], [])}
+        if path == "/teams/":
+            return {"data": [{"team_abbr": abbr} for abbr in (depth or {})]}
+        if path.startswith("/rosters/"):
+            return {"data": (depth or {}).get(path.rsplit("/", 1)[1], [])}
         season = params["season"]
         calls.append(season)
         return {"season": season, "data": by_season.get(season, [])}
@@ -184,6 +191,66 @@ def test_a_player_the_model_is_sour_on_is_rescued_by_what_he_actually_did(monkey
     # ahead of every star the model ranked above him but one.
     assert players["00-vet"].usage == 199.0
     assert players["00-star-0"].usage == 200.0
+
+
+def test_an_early_pick_is_worth_ranking_whatever_this_season_says(monkeypatch):
+    """A rookie taken at the top who sits behind a veteran.
+
+    His projection is not wrong — a backup quarterback really will score
+    nothing — but "will not produce" and "nobody wants to argue about him" are
+    different claims, and the first overall pick is the second.
+    """
+    roster = [_roster_row(f"00-qb{i}") for i in range(8)]
+    rookie = _roster_row("00-mendoza")
+    rookie["years_exp"] = 0
+    rookie["draft_number"] = 1
+    _stub_get(
+        monkeypatch,
+        {2026: roster + [rookie]},
+        projections={
+            2026: [_projection_row(f"00-qb{i}", 200.0 - i * 25) for i in range(8)]
+            + [_projection_row("00-mendoza", 7.1)]
+        },
+    )
+    monkeypatch.setitem(nfl.NFLSource.pool_depth, "QB", 8)
+
+    players = {p.external_id: p for p in nfl.NFLSource().fetch_players(season=2026)}
+
+    # Lifted off the floor of the position and into the pool, but nowhere near
+    # the starters — the claim is that he is worth ranking, not that he starts.
+    assert players["00-mendoza"].usage > 7.1
+    assert players["00-mendoza"].usage < players["00-qb0"].usage
+
+
+def test_a_late_pick_gets_no_such_benefit(monkeypatch):
+    late = _roster_row("00-late")
+    late["years_exp"] = 0
+    late["draft_number"] = 200
+    _stub_get(
+        monkeypatch,
+        {2026: [_roster_row("00-qb0"), late]},
+        projections={2026: [_projection_row("00-qb0", 200.0), _projection_row("00-late", 7.1)]},
+    )
+
+    players = {p.external_id: p for p in nfl.NFLSource().fetch_players(season=2026)}
+
+    assert players["00-late"].usage == 7.1
+
+
+def test_a_veteran_taken_early_years_ago_gets_no_benefit(monkeypatch):
+    """Pedigree is a rookie allowance; by year three the field has spoken."""
+    vet = _roster_row("00-vet")
+    vet["years_exp"] = 3
+    vet["draft_number"] = 2
+    _stub_get(
+        monkeypatch,
+        {2026: [_roster_row("00-qb0"), vet]},
+        projections={2026: [_projection_row("00-qb0", 200.0), _projection_row("00-vet", 7.1)]},
+    )
+
+    players = {p.external_id: p for p in nfl.NFLSource().fetch_players(season=2026)}
+
+    assert players["00-vet"].usage == 7.1
 
 
 def test_last_season_never_drags_a_well_projected_player_down(monkeypatch):
