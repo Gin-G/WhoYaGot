@@ -1,6 +1,6 @@
 ---
 status: active
-progress: 45
+progress: 55
 ---
 
 # WhoYaGot
@@ -33,7 +33,7 @@ HTML comments are stripped on read, so this block never reaches the board.
 
 An app that provides player tiles, this player, or that player, so that we can build a database of player preferences for users logged in via Google and overall across all users. It will start with NFL, and then expand to MLB, NHL, NBA, Soccer, Golf, etc. with selectable league tabs
 
-Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The voting loop, both ladders, sign-in and the Android build all work; what is left is the other leagues, and the tuning that only shows up once a board has been used for a while.
+Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The voting loop, both ladders, sign-in and the Android build all work, and matchups now come almost entirely from the 192 players anyone would draft. What is left is the other leagues, showing where a personal board disagrees with the crowd, and the tuning that only shows up once a board has been used for a while.
 
 ## Todos
 
@@ -51,7 +51,11 @@ Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The vo
 - [x] Undo a pick, revise a pick, and read back the whole history
 - [x] Filter picks to one player, to see who he was actually judged against
 - [x] Cross positions when no position is pinned, matched on standing
-- [ ] Cut an Android release carrying the picks screen and cross-position play
+- [x] Cut an Android release carrying the picks screen and cross-position play
+- [x] Draw 85% of matchups from the 192 players anyone would actually draft
+- [ ] Show how far each of my ranks sits from the overall list, up or down
+- [ ] Colour that gap green where I am higher on a player and red where lower
+- [ ] Rank both lists over the same players, so the gap is disagreement not a floor
 - [ ] Watch whether a 50/50 cross-position split is the right mix in practice
 - [ ] Revisit pool depth once cross-position votes show what positions are worth
 - [ ] Let the global board be read as one list rather than four ladders
