@@ -67,6 +67,8 @@ export interface VoteResult {
 
 export interface RankingEntry {
   rank: number
+  /** Places above (+) or below (-) where the crowd has him. Null if unrated. */
+  versus_crowd?: number | null
   player: PlayerCard
 }
 

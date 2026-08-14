@@ -102,6 +102,10 @@ class RevisePickIn(BaseModel):
 
 class RankingEntry(BaseModel):
     rank: int
+    # How far this player sits from where the crowd has him, on the personal
+    # board only. Positive means the voter rates him higher than the crowd
+    # does. None when the crowd has not rated him, or on the crowd's own board.
+    versus_crowd: Optional[int] = None
     player: PlayerCard
 
 

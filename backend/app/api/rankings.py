@@ -87,8 +87,14 @@ def my_rankings(
         q = q.filter(Player.position == position.upper())
 
     total = q.count()
-    rows = q.order_by(UserPlayerRating.rating.desc()).offset(offset).limit(limit).all()
+    # Paged in Python rather than SQL: the crowd's positions have to be worked
+    # out over the whole board, not the slice being returned, or the gap on
+    # page two would be measured against fifty players instead of the lot. A
+    # personal board is a few hundred rows, so this costs nothing worth saving.
+    ranked = q.order_by(UserPlayerRating.rating.desc()).all()
+    rows = ranked[offset : offset + limit]
     teams = team_map(db, league)
+    crowd = _crowd_places(db, league, [player.id for player, _ in ranked])
 
     return RankingsOut(
         league=league,
@@ -98,11 +104,38 @@ def my_rankings(
         entries=[
             RankingEntry(
                 rank=offset + i + 1,
+                # Positive means the voter has him higher than the crowd does.
+                versus_crowd=(
+                    crowd[player.id] - (offset + i + 1) if player.id in crowd else None
+                ),
                 player=to_card(player, teams.get(player.team_abbr), rating),
             )
             for i, (player, rating) in enumerate(rows)
         ],
     )
+
+
+def _crowd_places(db: Session, league: str, player_ids: list[int]) -> dict[int, int]:
+    """Where the crowd puts each of these players, ranked among themselves.
+
+    Ranked over exactly the players handed in, rather than read off the global
+    board. The two boards do not hold the same people — the crowd's asks for
+    five votes and a personal one for three — so lifting positions straight off
+    each list would report a gap wherever the lists merely differ in who they
+    contain. With one voter and no disagreement possible at all, that alone put
+    the two 3.8 places apart on average. Ranking both over the same players
+    leaves only what the ratings actually say.
+    """
+    if not player_ids:
+        return {}
+
+    rated = (
+        db.query(PlayerRating.player_id)
+        .filter(PlayerRating.league == league, PlayerRating.player_id.in_(player_ids))
+        .order_by(PlayerRating.rating.desc())
+        .all()
+    )
+    return {player_id: place for place, (player_id,) in enumerate(rated, start=1)}
 
 
 @router.get("/head-to-head")

@@ -17,6 +17,14 @@ export default {
         chalk: '#F5F3EF',
         // Reserved for state only — never decoration.
         signal: '#FF4B12',
+        // Where you sit against the crowd. Darker than `signal`, which at 11px
+        // on concrete clears 2.4:1 and is unreadable; these clear AA. The arrow
+        // and the number carry the meaning on their own, so colour is only ever
+        // reinforcing it.
+        verdict: {
+          up: '#146B3F',
+          down: '#B22D08',
+        },
       },
       fontFamily: {
         // One family doing three jobs via its width axis.

@@ -30,6 +30,21 @@ POOL_STATUSES = {
     s.strip().upper() for s in os.getenv("NFL_POOL_STATUSES", "ACT").split(",") if s.strip()
 }
 
+# Reserve codes admitted anyway, read from `status_description_abbr`.
+#
+# R09 is carried by drafted rookies who have not signed yet. Going on status
+# alone hid every one of them: in August 2026 that was six players, all with a
+# 2026 entry year and a real draft slot, the first overall pick among them.
+# Those are the names people came to argue about, so they belong in the pool
+# even though the roster technically has them in reserve.
+#
+# Deliberately narrow. The other reserve codes on the same feed are injuries
+# and non-football lists, and a player who will not take the field this season
+# has no business in a matchup.
+POOL_STATUS_CODES = {
+    s.strip().upper() for s in os.getenv("NFL_POOL_STATUS_CODES", "R09").split(",") if s.strip()
+}
+
 # Pins the sync to one season. Empty means work it out from the date, which is
 # what you want outside of a backfill.
 SEASON_OVERRIDE = int(os.getenv("NFL_SEASON")) if os.getenv("NFL_SEASON") else None
@@ -283,7 +298,9 @@ class NFLSource(PlayerSource):
 
             kept = projected = 0
             for row in rows:
-                if (row.get("status") or "").upper() not in POOL_STATUSES:
+                status = (row.get("status") or "").upper()
+                code = (row.get("status_description_abbr") or "").upper()
+                if status not in POOL_STATUSES and code not in POOL_STATUS_CODES:
                     continue
                 external_id = row.get("player_id")
                 name = row.get("player_display_name") or row.get("player_name")

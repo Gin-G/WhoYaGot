@@ -3,6 +3,39 @@ import { Link } from 'react-router-dom'
 import type { RankingEntry } from '../api/types'
 
 /**
+ * How far you have a player from where the crowd has him.
+ *
+ * Only ever drawn on your own board, and only once the crowd can place him.
+ * A dash rather than a zero when you agree: agreement is the common case, and
+ * a column of green zeros would read as movement.
+ */
+function VersusCrowd({ places }: { places?: number | null }) {
+  if (places === null || places === undefined) return null
+
+  const agreed = places === 0
+  const size = Math.abs(places)
+  const described = agreed
+    ? 'Same as the overall list'
+    : `${size} ${size === 1 ? 'place' : 'places'} ${
+        places > 0 ? 'higher' : 'lower'
+      } than the overall list`
+
+  return (
+    <span
+      title={described}
+      className={[
+        'tabular flex w-10 shrink-0 items-center justify-end gap-0.5 text-[0.68rem] font-semibold',
+        agreed ? 'text-ink-soft/50' : places > 0 ? 'text-verdict-up' : 'text-verdict-down',
+      ].join(' ')}
+    >
+      {/* The glyphs read as punctuation aloud, and a bare "2" says nothing. */}
+      <span className="sr-only">{described}</span>
+      <span aria-hidden>{agreed ? '–' : places > 0 ? `▲${size}` : `▼${size}`}</span>
+    </span>
+  )
+}
+
+/**
  * Rank strip, tote-board style: the number leads, the data is monospace.
  *
  * On your own board the name links to the picks that put him there — when
@@ -61,6 +94,8 @@ export function RankingRow({ entry, showPicks = false }: { entry: RankingEntry; 
       {team?.logo_url && (
         <img src={team.logo_url} alt="" aria-hidden className="hidden h-7 w-7 shrink-0 sm:block" />
       )}
+
+      <VersusCrowd places={entry.versus_crowd} />
 
       {rating && (
         <div className="shrink-0 text-right">

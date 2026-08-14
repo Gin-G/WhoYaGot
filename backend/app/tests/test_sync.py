@@ -83,6 +83,40 @@ def test_fetch_players_falls_back_when_the_new_season_is_unpublished(monkeypatch
     assert {p.season for p in players} == {2026}
 
 
+def test_a_drafted_rookie_who_has_not_signed_is_still_in_the_pool(monkeypatch):
+    """The 2026 first overall pick sat on reserve all August and never came up."""
+    unsigned = _roster_row("00-mendoza")
+    unsigned["status"] = "RES"
+    unsigned["status_description_abbr"] = "R09"
+    _stub_get(monkeypatch, {2026: [unsigned]})
+
+    players = nfl.NFLSource().fetch_players(season=2026)
+
+    assert [p.external_id for p in players] == ["00-mendoza"]
+
+
+def test_a_reserve_that_is_not_an_unsigned_rookie_stays_out(monkeypatch):
+    """R36 and friends are injuries; those players will not take the field."""
+    injured = _roster_row("00-injured")
+    injured["status"] = "RES"
+    injured["status_description_abbr"] = "R36"
+    playing = _roster_row("00-playing")
+    _stub_get(monkeypatch, {2026: [injured, playing]})
+
+    players = nfl.NFLSource().fetch_players(season=2026)
+
+    assert [p.external_id for p in players] == ["00-playing"]
+
+
+def test_a_row_with_no_status_code_at_all_is_judged_on_status(monkeypatch):
+    """Filtering everything out is not the same as upstream sending nothing."""
+    cut = _roster_row("00-cut")
+    cut["status"] = "CUT"
+    _stub_get(monkeypatch, {2026: [cut]})
+
+    assert nfl.NFLSource().fetch_players(season=2026) == []
+
+
 def _projection_row(player_id="00-0001", total_points=120.0):
     return {"player_id": player_id, "total_points": total_points}
 
