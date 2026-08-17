@@ -1,21 +1,7 @@
 import type { PlayerCard } from '../api/types'
 import { fieldFor } from '../lib/color'
 import { useFitText } from '../lib/fitText'
-
-// Generational suffixes belong with the surname, not billed as one. The league
-// is full of them — without this, "Marvin Harrison Jr." reads as a giant "JR."
-const SUFFIXES = new Set(['jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv', 'v'])
-
-/** "Christian McCaffrey" -> given "CHRISTIAN", family "McCAFFREY". */
-function splitName(name: string): { given: string; family: string } {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length <= 1) return { given: '', family: parts[0] ?? '' }
-
-  let cut = parts.length - 1
-  if (cut > 1 && SUFFIXES.has(parts[cut].toLowerCase())) cut -= 1
-
-  return { given: parts.slice(0, cut).join(' '), family: parts.slice(cut).join(' ') }
-}
+import { splitName } from '../lib/playerName'
 
 function heightWeight(player: PlayerCard): string | null {
   const bits: string[] = []

@@ -4,7 +4,7 @@ import { apiClient } from './client'
 
 /** Asks for no position filter, as opposed to saying nothing at all. */
 const MIX = 'mix'
-import type { League, Matchup, Picks, Rankings, VoteResult } from './types'
+import type { League, Matchup, Picks, RankingEntry, Rankings, VoteResult } from './types'
 
 export function useLeagues() {
   return useQuery({
@@ -167,5 +167,40 @@ export function useRankings(
       return data
     },
     enabled,
+  })
+}
+
+/** The API's ceiling on one page of rankings. */
+const MAX_PAGE = 500
+
+/**
+ * The whole personal board, for handing to another app.
+ *
+ * The board on screen stops at a hundred because nobody scrolls past that, but
+ * an export that silently stopped there would hand over a draft list missing
+ * its back half. So this pages until it has every ranked player, and only runs
+ * when the export panel is actually open.
+ */
+export function useMyListExport(league: string, position: string | null) {
+  return useQuery({
+    queryKey: ['rankings-export', league, position],
+    queryFn: async () => {
+      const entries: RankingEntry[] = []
+      for (;;) {
+        const { data } = await apiClient.get<Rankings>('/rankings/me', {
+          params: {
+            league,
+            limit: MAX_PAGE,
+            offset: entries.length,
+            ...(position ? { position } : {}),
+          },
+        })
+        // An empty page ends it too, so a shrinking board can't spin here.
+        if (!data.entries.length) return entries
+        entries.push(...data.entries)
+        if (entries.length >= data.total) return entries
+      }
+    },
+    staleTime: 30 * 1000,
   })
 }
