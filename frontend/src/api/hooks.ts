@@ -1,10 +1,38 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiClient } from './client'
 
 /** Asks for no position filter, as opposed to saying nothing at all. */
 const MIX = 'mix'
 import type { League, Matchup, Picks, RankingEntry, Rankings, VoteResult } from './types'
+
+/**
+ * A page of a list. Small enough to paint immediately on a phone, big enough
+ * that a few hundred rows is two or three reaches rather than a dozen. Both
+ * endpoints will serve up to 500, so these are a rendering budget rather than
+ * a limit imposed from the other side.
+ */
+const RANKINGS_PAGE = 100
+const PICKS_PAGE = 100
+
+/**
+ * Where the next page starts, or undefined once the list is exhausted.
+ *
+ * A short page means the end, whatever the count says. Checking that as well
+ * as the running total stops a list that shrinks underneath us — someone
+ * undoes a pick, players drop back below the vote threshold — from asking for
+ * the same offset forever.
+ */
+function nextOffset<T extends { total: number }>(
+  pages: T[],
+  size: number,
+  count: (page: T) => number,
+): number | undefined {
+  const last = pages[pages.length - 1]
+  if (count(last) < size) return undefined
+  const loaded = pages.reduce((n, page) => n + count(page), 0)
+  return loaded < last.total ? loaded : undefined
+}
 
 export function useLeagues() {
   return useQuery({
@@ -96,19 +124,23 @@ export function usePicks(
   playerId: number | null,
   enabled = true,
 ) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['picks', league, position, playerId],
-    queryFn: async () => {
+    queryFn: async ({ pageParam }) => {
       const { data } = await apiClient.get<Picks>('/picks', {
         params: {
           league,
-          limit: 200,
+          limit: PICKS_PAGE,
+          offset: pageParam,
           ...(position ? { position } : {}),
           ...(playerId ? { player_id: playerId } : {}),
         },
       })
       return data
     },
+    initialPageParam: 0,
+    getNextPageParam: (_last, pages) =>
+      nextOffset(pages, PICKS_PAGE, (page) => page.picks.length),
     enabled,
   })
 }
@@ -157,15 +189,23 @@ export function useRankings(
   scope: 'global' | 'personal',
   enabled = true,
 ) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['rankings', scope, league, position],
-    queryFn: async () => {
+    queryFn: async ({ pageParam }) => {
       const path = scope === 'personal' ? '/rankings/me' : '/rankings'
       const { data } = await apiClient.get<Rankings>(path, {
-        params: { league, limit: 100, ...(position ? { position } : {}) },
+        params: {
+          league,
+          limit: RANKINGS_PAGE,
+          offset: pageParam,
+          ...(position ? { position } : {}),
+        },
       })
       return data
     },
+    initialPageParam: 0,
+    getNextPageParam: (_last, pages) =>
+      nextOffset(pages, RANKINGS_PAGE, (page) => page.entries.length),
     enabled,
   })
 }

@@ -1,8 +1,10 @@
+import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { describeError } from '../api/client'
 import { usePicks, useRevisePick, useUndoPick } from '../api/hooks'
 import type { Pick, PlayerCard } from '../api/types'
+import { LoadMore } from '../components/LoadMore'
 import { PositionChips } from '../components/PositionChips'
 import { Loading, StatusNote } from '../components/StatusNote'
 
@@ -142,7 +144,9 @@ export function HistoryPage({ league, positions, position, onPositionChange }: P
   const revise = useRevisePick()
   const busy = undo.isPending || revise.isPending
 
-  const picks = query.data?.picks ?? []
+  const pages = query.data?.pages
+  const picks = useMemo(() => pages?.flatMap((page) => page.picks) ?? [], [pages])
+  const total = pages?.[0]?.total ?? 0
   // The filter names itself from the picks it returned, so no extra lookup.
   const filtered =
     playerId !== null
@@ -172,7 +176,7 @@ export function HistoryPage({ league, positions, position, onPositionChange }: P
           <div className="mb-3 flex items-baseline justify-between border-b-2 border-ink pb-2">
             <h1 className="sign text-xs text-ink">Your picks</h1>
             <span className="tabular text-[0.65rem] uppercase tracking-wider text-ink-soft">
-              {query.data ? `${query.data.total} made` : ''}
+              {!pages ? '' : picks.length < total ? `${picks.length} of ${total}` : `${total} made`}
             </span>
           </div>
 
@@ -202,18 +206,28 @@ export function HistoryPage({ league, positions, position, onPositionChange }: P
           ) : query.isLoading ? (
             <Loading label="Reading your picks" />
           ) : picks.length > 0 ? (
-            <ol>
-              {picks.map((pick) => (
-                <PickRow
-                  key={pick.id}
-                  pick={pick}
-                  busy={busy}
-                  onFilter={(player) => setPlayer(player.id)}
-                  onRevise={(winnerId) => revise.mutate({ pickId: pick.id, winnerId })}
-                  onUndo={() => undo.mutate(pick.id)}
+            <>
+              <ol>
+                {picks.map((pick) => (
+                  <PickRow
+                    key={pick.id}
+                    pick={pick}
+                    busy={busy}
+                    onFilter={(player) => setPlayer(player.id)}
+                    onRevise={(winnerId) => revise.mutate({ pickId: pick.id, winnerId })}
+                    onUndo={() => undo.mutate(pick.id)}
+                  />
+                ))}
+              </ol>
+              {query.hasNextPage && (
+                <LoadMore
+                  onLoad={() => void query.fetchNextPage()}
+                  loading={query.isFetchingNextPage}
+                  remaining={total - picks.length}
+                  noun="pick"
                 />
-              ))}
-            </ol>
+              )}
+            </>
           ) : (
             <StatusNote
               title={playerId !== null ? 'No picks with him' : 'Nothing picked yet'}

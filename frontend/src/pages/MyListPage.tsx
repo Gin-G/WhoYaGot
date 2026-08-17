@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { describeError } from '../api/client'
 import { useRankings } from '../api/hooks'
 import { ExportPanel } from '../components/ExportPanel'
+import { LoadMore } from '../components/LoadMore'
 import { PositionChips } from '../components/PositionChips'
 import { RankingRow } from '../components/RankingRow'
 import { Loading, StatusNote } from '../components/StatusNote'
@@ -20,10 +21,14 @@ export function MyListPage({ league, positions, position, onPositionChange }: Pr
   const query = useRankings(league, position, 'personal', Boolean(user))
   const [exporting, setExporting] = useState(false)
 
+  const pages = query.data?.pages
+  const entries = useMemo(() => pages?.flatMap((page) => page.entries) ?? [], [pages])
+  const total = pages?.[0]?.total ?? 0
+
   // Only a settled response proves the board is empty. Treating "no data yet"
   // as empty would shut the panel every time a position chip is tapped, since
   // the new position has nothing cached to answer with.
-  const boardEmpty = Boolean(query.data) && query.data!.entries.length === 0
+  const boardEmpty = Boolean(pages) && entries.length === 0
   const canExport = Boolean(user) && !query.isError && !boardEmpty
 
   // A board with nothing on it has nothing to hand over.
@@ -48,7 +53,7 @@ export function MyListPage({ league, positions, position, onPositionChange }: Pr
             <h1 className="sign text-xs text-ink">Your board</h1>
             <div className="flex items-baseline gap-3">
               <span className="tabular text-[0.65rem] uppercase tracking-wider text-ink-soft">
-                {query.data ? `${query.data.total} ranked` : ''}
+                {!pages ? '' : entries.length < total ? `${entries.length} of ${total}` : `${total} ranked`}
               </span>
               {canExport && (
                 <button
@@ -90,12 +95,22 @@ export function MyListPage({ league, positions, position, onPositionChange }: Pr
             <Loading label="Reading your board" />
           ) : query.isError ? (
             <StatusNote tone="alert" title="No list" detail={describeError(query.error)} />
-          ) : query.data && query.data.entries.length > 0 ? (
-            <ol>
-              {query.data.entries.map((entry) => (
-                <RankingRow key={entry.player.id} entry={entry} showPicks />
-              ))}
-            </ol>
+          ) : entries.length > 0 ? (
+            <>
+              <ol>
+                {entries.map((entry) => (
+                  <RankingRow key={entry.player.id} entry={entry} showPicks />
+                ))}
+              </ol>
+              {query.hasNextPage && (
+                <LoadMore
+                  onLoad={() => void query.fetchNextPage()}
+                  loading={query.isFetchingNextPage}
+                  remaining={total - entries.length}
+                  noun="player"
+                />
+              )}
+            </>
           ) : (
             <StatusNote
               title="No list yet"

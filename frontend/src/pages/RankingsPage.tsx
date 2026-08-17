@@ -1,5 +1,8 @@
+import { useMemo } from 'react'
+
 import { describeError } from '../api/client'
 import { useRankings } from '../api/hooks'
+import { LoadMore } from '../components/LoadMore'
 import { PositionChips } from '../components/PositionChips'
 import { RankingRow } from '../components/RankingRow'
 import { Loading, StatusNote } from '../components/StatusNote'
@@ -13,6 +16,10 @@ interface Props {
 
 export function RankingsPage({ league, positions, position, onPositionChange }: Props) {
   const query = useRankings(league, position, 'global')
+
+  const pages = query.data?.pages
+  const entries = useMemo(() => pages?.flatMap((page) => page.entries) ?? [], [pages])
+  const total = pages?.[0]?.total ?? 0
 
   return (
     <div className="flex h-full flex-col bg-concrete-light">
@@ -30,7 +37,7 @@ export function RankingsPage({ league, positions, position, onPositionChange }: 
           <div className="mb-3 flex items-baseline justify-between border-b-2 border-ink pb-2">
             <h1 className="sign text-xs text-ink">Everyone's board</h1>
             <span className="tabular text-[0.65rem] uppercase tracking-wider text-ink-soft">
-              {query.data ? `${query.data.total} ranked` : ''}
+              {!pages ? '' : entries.length < total ? `${entries.length} of ${total}` : `${total} ranked`}
             </span>
           </div>
 
@@ -38,12 +45,22 @@ export function RankingsPage({ league, positions, position, onPositionChange }: 
             <Loading label="Reading the board" />
           ) : query.isError ? (
             <StatusNote tone="alert" title="No rankings" detail={describeError(query.error)} />
-          ) : query.data && query.data.entries.length > 0 ? (
-            <ol>
-              {query.data.entries.map((entry) => (
-                <RankingRow key={entry.player.id} entry={entry} />
-              ))}
-            </ol>
+          ) : entries.length > 0 ? (
+            <>
+              <ol>
+                {entries.map((entry) => (
+                  <RankingRow key={entry.player.id} entry={entry} />
+                ))}
+              </ol>
+              {query.hasNextPage && (
+                <LoadMore
+                  onLoad={() => void query.fetchNextPage()}
+                  loading={query.isFetchingNextPage}
+                  remaining={total - entries.length}
+                  noun="player"
+                />
+              )}
+            </>
           ) : (
             <StatusNote
               title="Nothing ranked yet"
