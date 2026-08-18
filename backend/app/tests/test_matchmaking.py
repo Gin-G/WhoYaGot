@@ -333,15 +333,18 @@ def test_crossing_survives_a_position_whose_ladder_has_barely_moved(db, league_p
         place.update({player.id: rank for rank, player in enumerate(group)})
 
     faced = []
-    for _ in range(300):
+    # 900 rather than a few hundred: he turns up in a crossed pair perhaps two
+    # percent of the time, so a smaller sample sometimes catches him once or
+    # not at all and fails on the guard rather than on the behaviour. At this
+    # count the thinnest sample measured over sixty trials was ten.
+    for _ in range(900):
         _, a, b = matchmaking.create_matchup(db, "nfl")
         if best_te.id in (a.id, b.id) and a.position != b.position:
             faced.append(b if a.id == best_te.id else a)
     db.commit()
 
-    # Which positions he happens to be drawn against over 300 deals is a coin
-    # toss — he comes up in only a handful of crossed pairs. That every one of
-    # them is near the top of its own position is the part that must hold.
+    # Which positions he is drawn against is still a coin toss. That every one
+    # of them is near the top of its own position is the part that must hold.
     assert len(faced) >= 2
     assert all(place[other.id] <= 3 for other in faced), {
         other.name: place[other.id] for other in faced
