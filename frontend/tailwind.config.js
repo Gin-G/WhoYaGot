@@ -25,6 +25,12 @@ export default {
           up: '#146B3F',
           down: '#B22D08',
         },
+        // The field a settled row sits on. Muted into the concrete palette
+        // rather than a signal green: most of a board ends up settled, and a
+        // bright field repeated two hundred times reads as an alarm rather
+        // than as "this part is done". Dark enough to tell from the concrete
+        // at a glance, light enough to leave ink on it well past AA.
+        settled: '#BCD2B4',
       },
       fontFamily: {
         // One family doing three jobs via its width axis.

@@ -5,7 +5,7 @@ import uuid
 import pytest
 
 from database.models import Matchup, User, Vote
-from services.settling import analyse
+from services.settling import analyse, order_by_picks
 
 
 @pytest.fixture()
@@ -208,3 +208,132 @@ def test_every_gap_closed_leaves_nothing_to_deal(db, voter, make_pool):
     reading = _read(db, voter, board)
     assert reading.settled == {p.id for p in board}
     assert reading.open_boundaries == []
+
+
+# --- the order a board is shown in -------------------------------------------
+
+
+def _order(db, voter, board, strength):
+    picks = (
+        db.query(Vote.winner_id, Vote.loser_id)
+        .filter(Vote.user_id == voter.id, Vote.league == "nfl")
+        .all()
+    )
+    return order_by_picks([p.id for p in board], strength, picks)
+
+
+def test_a_player_is_never_shown_below_one_he_was_taken_over(db, voter, make_pool):
+    """The bug this fixes: three picks beaten by a rating built elsewhere.
+
+    Allen is taken over Maye three times. Maye then beats other people and his
+    rating climbs past Allen's, and the board used to answer the one question
+    the voter actually asked about the pair with the opposite of their answer.
+    """
+    board = make_pool(5)
+    allen, maye = board[4], board[0]
+    strength = {p.id: r for p, r in zip(board, [1560.0, 1520.0, 1510.0, 1505.0, 1450.0])}
+
+    for _ in range(3):
+        _pick(db, voter, allen, maye)
+    _pick(db, voter, maye, board[1])
+
+    order = _order(db, voter, board, strength)
+    assert order.index(allen.id) < order.index(maye.id)
+
+
+def test_the_rating_still_orders_everyone_the_picks_are_silent_about(db, voter, make_pool):
+    board = make_pool(4)
+    strength = {p.id: r for p, r in zip(board, [1600.0, 1500.0, 1400.0, 1300.0])}
+    assert _order(db, voter, board, strength) == [p.id for p in board]
+
+
+def test_a_pick_lifts_a_player_without_dragging_the_board_with_him(db, voter, make_pool):
+    """Only the order the pick actually decides changes; the rest holds."""
+    board = make_pool(5)
+    low, high = board[4], board[0]
+    strength = {p.id: r for p, r in zip(board, [1600.0, 1550.0, 1500.0, 1450.0, 1400.0])}
+    _pick(db, voter, low, high)
+
+    order = _order(db, voter, board, strength)
+    # He comes out directly above the man he beat, not parked at the top by
+    # rating, and everyone the pick says nothing about keeps their order.
+    assert order[0] == low.id
+    assert order[1] == high.id
+    assert order[2:] == [board[1].id, board[2].id, board[3].id]
+
+
+def test_the_balance_of_repeated_picks_decides_the_pair(db, voter, make_pool):
+    board = make_pool(2)
+    upper, lower = board
+    strength = {upper.id: 1600.0, lower.id: 1400.0}
+
+    for _ in range(3):
+        _pick(db, voter, lower, upper)
+    _pick(db, voter, upper, lower)  # one the other way: 3-1, still his
+
+    assert _order(db, voter, board, strength)[0] == lower.id
+
+
+def test_a_pair_level_on_picks_falls_back_to_the_rating(db, voter, make_pool):
+    board = make_pool(2)
+    upper, lower = board
+    strength = {upper.id: 1600.0, lower.id: 1400.0}
+    _pick(db, voter, lower, upper)
+    _pick(db, voter, upper, lower)
+
+    assert _order(db, voter, board, strength) == [upper.id, lower.id]
+
+
+def test_a_knot_of_contradictions_keeps_its_place_and_sorts_by_rating(db, voter, make_pool):
+    board = make_pool(5)
+    strength = {p.id: r for p, r in zip(board, [1600.0, 1550.0, 1500.0, 1450.0, 1400.0])}
+    _pick(db, voter, board[1], board[2])
+    _pick(db, voter, board[2], board[3])
+    _pick(db, voter, board[3], board[1])
+
+    order = _order(db, voter, board, strength)
+    assert order[0] == board[0].id  # untouched by the knot
+    assert order[1:4] == [board[1].id, board[2].id, board[3].id]
+    assert order[4] == board[4].id
+
+
+def test_ordering_by_picks_makes_a_chain_settle_end_to_end(db, voter, make_pool):
+    """The two halves agree: order by the picks and the picks settle the order."""
+    board = make_pool(6)
+    # Deliberately backwards against the rating, all the way down.
+    strength = {p.id: 1400.0 + i * 20 for i, p in enumerate(board)}
+    for upper, lower in zip(board, board[1:]):
+        _pick(db, voter, upper, lower)
+
+    order = _order(db, voter, board, strength)
+    assert order == [p.id for p in board]
+    picks = (
+        db.query(Vote.winner_id, Vote.loser_id)
+        .filter(Vote.user_id == voter.id, Vote.league == "nfl")
+        .all()
+    )
+    assert analyse(order, picks).settled == {p.id for p in board}
+
+
+def test_a_chain_does_not_run_through_a_contradiction(db, voter, make_pool):
+    """Beating a player caught in a knot says nothing about who is behind him.
+
+    Everyone inside a contradiction reaches everyone else there, so a chain let
+    through one would come out the far side proving whatever it liked.
+    """
+    board = make_pool(5)
+    top, a, b, c, bottom = board
+    # Top beats one member of the knot, and the board happens to sit a
+    # different member directly beneath him.
+    _pick(db, voter, top, c)
+    _pick(db, voter, a, b)
+    _pick(db, voter, b, c)
+    _pick(db, voter, c, a)
+    _pick(db, voter, a, bottom)
+
+    reading = _read(db, voter, board)
+    # He has shown himself over one of them, not over the man actually below
+    # him — and the only route there runs through the contradiction, where the
+    # picks point both ways at once.
+    assert top.id not in reading.settled
+    assert bottom.id not in reading.settled

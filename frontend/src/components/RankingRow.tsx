@@ -47,16 +47,20 @@ export function RankingRow({ entry, showPicks = false }: { entry: RankingEntry; 
   const team = player.team
 
   return (
-    <li className="flex items-center gap-3 border-b border-ink/12 py-2.5 pl-1 pr-3 md:gap-4">
-      {/* The number is what gets settled, so the number is what turns. A rank
-          nobody's picks have pinned down is still an estimate; this one is a
-          result, and will not move however much more you vote. */}
+    /* A settled place gets the whole row, not just the number. Colouring four
+       digits green among two hundred black ones is a difference you have to go
+       looking for; a block of colour is one you can see from the top of the
+       list, which is the point — the eye should find the settled stretch of a
+       board without reading it. */
+    <li
+      className={[
+        'flex items-center gap-3 border-b border-ink/12 py-2.5 pl-1 pr-3 md:gap-4',
+        locked ? 'bg-settled' : '',
+      ].join(' ')}
+      title={locked ? `Rank ${rank} is settled — your picks put him here` : undefined}
+    >
       <span
-        className={[
-          'tabular w-9 shrink-0 text-right text-lg font-semibold md:w-12 md:text-2xl',
-          locked ? 'text-verdict-up' : 'text-ink',
-        ].join(' ')}
-        title={locked ? `Rank ${rank} is settled — your picks put him here` : undefined}
+        className="tabular w-9 shrink-0 text-right text-lg font-semibold text-ink md:w-12 md:text-2xl"
         aria-label={locked ? `Rank ${rank}, settled by your picks` : `Rank ${rank}`}
       >
         {rank}

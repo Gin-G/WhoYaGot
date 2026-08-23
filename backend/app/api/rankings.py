@@ -11,7 +11,7 @@ from database.models import Player, PlayerRating, User, UserPlayerRating, Vote
 from database.session import get_db
 from schemas import RankingEntry, RankingsOut, to_card
 from services.security import current_user
-from services.settling import analyse
+from services.settling import analyse, order_by_picks
 
 router = APIRouter()
 
@@ -92,19 +92,28 @@ def my_rankings(
     # out over the whole board, not the slice being returned, or the gap on
     # page two would be measured against fifty players instead of the lot. A
     # personal board is a few hundred rows, so this costs nothing worth saving.
-    ranked = q.order_by(UserPlayerRating.rating.desc()).all()
-    rows = ranked[offset : offset + limit]
-    teams = team_map(db, league)
-    ranked_ids = [player.id for player, _ in ranked]
-    crowd = _crowd_places(db, league, ranked_ids)
-    # Both of these are worked out over the whole board rather than the page,
-    # for the same reason: a place is settled by its neighbours, and on a page
-    # boundary one of those neighbours is on the other page.
+    by_rating = q.order_by(UserPlayerRating.rating.desc()).all()
     picks = (
         db.query(Vote.winner_id, Vote.loser_id)
         .filter(Vote.user_id == user.id, Vote.league == league)
         .all()
     )
+    # The rating seeds the order and settles anything the picks are silent on,
+    # which is most pairs. Where they are not silent, they win: a player is
+    # never shown below someone he was taken over.
+    held = {player.id: (player, rating) for player, rating in by_rating}
+    ranked_ids = order_by_picks(
+        [player.id for player, _ in by_rating],
+        {player.id: rating.rating for player, rating in by_rating},
+        picks,
+    )
+    ranked = [held[player_id] for player_id in ranked_ids]
+    rows = ranked[offset : offset + limit]
+    teams = team_map(db, league)
+    crowd = _crowd_places(db, league, ranked_ids)
+    # Both of these are worked out over the whole board rather than the page,
+    # for the same reason: a place is settled by its neighbours, and on a page
+    # boundary one of those neighbours is on the other page.
     settled = analyse(ranked_ids, picks).settled
 
     return RankingsOut(

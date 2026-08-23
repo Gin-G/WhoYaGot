@@ -104,6 +104,137 @@ def _components(edges: list[list[int]], n: int) -> list[int]:
     return comp
 
 
+def _edges(order: list[int], beats: Iterable[tuple[int, int]]) -> list[list[int]]:
+    """Who the voter has put over whom, one edge per pair, by weight of picks.
+
+    A pair judged more than once is settled by the balance of it rather than by
+    the existence of a single result either way: three for Allen and one for
+    Maye is a voter who has made their mind up, not a contradiction. Dead level
+    is the real contradiction, and gets no edge at all.
+
+    Picks naming anyone outside `order` are dropped — they say nothing about the
+    order of the players it does hold.
+    """
+    edges: list[list[int]] = [[] for _ in range(len(order))]
+    for (winner, loser), margin in _records(order, beats).items():
+        edges[winner].append(loser)
+    return edges
+
+
+def _records(
+    order: list[int], beats: Iterable[tuple[int, int]]
+) -> dict[tuple[int, int], int]:
+    """Each judged pair as (winner, loser) -> how far clear, by index.
+
+    Three for Allen and one for Maye is one entry, Allen by two. Dead level
+    leaves the pair out: that is the one case where the picks really do say
+    nothing.
+    """
+    place = {player_id: i for i, player_id in enumerate(order)}
+    net: dict[tuple[int, int], int] = {}
+    for winner_id, loser_id in beats:
+        won, lost = place.get(winner_id), place.get(loser_id)
+        if won is None or lost is None or won == lost:
+            continue
+        pair = (won, lost) if won < lost else (lost, won)
+        net[pair] = net.get(pair, 0) + (1 if won < lost else -1)
+
+    return {
+        ((low, high) if balance > 0 else (high, low)): abs(balance)
+        for (low, high), balance in net.items()
+        if balance
+    }
+
+
+def order_by_picks(
+    seeded: list[int],
+    strength: dict[int, float],
+    beats: Iterable[tuple[int, int]],
+) -> list[int]:
+    """Order these players so nobody sits below a player they were taken over.
+
+    A rating is a summary, and summaries lose arguments. Take Allen over Maye
+    three times and then watch Maye beat four other people: the ratings have Maye
+    ahead on strength of schedule, while the one question the voter actually
+    answered about the two of them says the opposite. A board that shows Maye
+    first is not reporting their opinion back to them.
+
+    So the picks lead and the rating follows. This is a topological order of the
+    pick graph, and where the picks say nothing — most pairs, on most boards —
+    the rating breaks the tie, so the familiar order survives everywhere it is
+    not actually contradicted.
+
+    Players tangled in a contradiction cannot be separated by their picks, so
+    the group keeps its place as a block and sorts by rating inside.
+    """
+    n = len(seeded)
+    if n < 2:
+        return list(seeded)
+
+    records = _records(seeded, beats)
+    edges: list[list[int]] = [[] for _ in range(n)]
+    for winner, loser in records:
+        edges[winner].append(loser)
+    comp = _components(edges, n)
+    count = max(comp) + 1
+
+    members: list[list[int]] = [[] for _ in range(count)]
+    for i, c in enumerate(comp):
+        members[c].append(i)
+
+    following: list[set[int]] = [set() for _ in range(count)]
+    waiting = [0] * count
+    for u in range(n):
+        for v in edges[u]:
+            if comp[u] != comp[v] and comp[v] not in following[comp[u]]:
+                following[comp[u]].add(comp[v])
+                waiting[comp[v]] += 1
+
+    def rating(i: int) -> float:
+        return strength.get(seeded[i], 0.0)
+
+    # Inside a knot the picks contradict each other and no order can honour all
+    # of them, so honour the ones held most firmly: each player scores the
+    # margins he won by against the rest of the knot, less the margins he lost
+    # by. Taking Allen over Maye three times outweighs a single pick against
+    # him somewhere down a chain, and the order breaks at the weak link rather
+    # than the strong one. Outside a knot this is dead weight and every group
+    # scores zero.
+    standing = [0] * n
+    for (winner, loser), margin in records.items():
+        if comp[winner] == comp[loser]:
+            standing[winner] += margin
+            standing[loser] -= margin
+
+    own = [max(rating(i) for i in members[c]) for c in range(count)]
+
+    # What a group has to outrank, not merely what it is rated. A player who
+    # took someone rated far above him has to come out above that player, so he
+    # belongs at that height on the board — otherwise everyone in between floats
+    # over him on rating alone and the board reads as though the pick never
+    # happened. Successors always carry a lower component id, so one pass upward
+    # finds them already done.
+    height = list(own)
+    for c in range(count):
+        for d in following[c]:
+            height[c] = max(height[c], height[d])
+
+    import heapq
+
+    ready = [(-height[c], -own[c], c) for c in range(count) if waiting[c] == 0]
+    heapq.heapify(ready)
+    out: list[int] = []
+    while ready:
+        _, _, c = heapq.heappop(ready)
+        for i in sorted(members[c], key=lambda i: (standing[i], rating(i)), reverse=True):
+            out.append(seeded[i])
+        for d in following[c]:
+            waiting[d] -= 1
+            if waiting[d] == 0:
+                heapq.heappush(ready, (-height[d], -own[d], d))
+    return out
+
+
 def analyse(order: list[int], beats: Iterable[tuple[int, int]]) -> Settling:
     """Read `order` against the picks in `beats`, each a (winner, loser) pair.
 
@@ -115,16 +246,10 @@ def analyse(order: list[int], beats: Iterable[tuple[int, int]]) -> Settling:
     if n < 2:
         return Settling(set(), [])
 
-    place = {player_id: i for i, player_id in enumerate(order)}
+    records = _records(order, beats)
     edges: list[list[int]] = [[] for _ in range(n)]
-    seen: set[tuple[int, int]] = set()
-    for winner_id, loser_id in beats:
-        won, lost = place.get(winner_id), place.get(loser_id)
-        if won is None or lost is None or won == lost or (won, lost) in seen:
-            continue
-        seen.add((won, lost))
-        edges[won].append(lost)
-
+    for winner, loser in records:
+        edges[winner].append(loser)
     comp = _components(edges, n)
     count = max(comp) + 1
 
@@ -141,16 +266,34 @@ def analyse(order: list[int], beats: Iterable[tuple[int, int]]) -> Settling:
     # Who each component can reach, as a bitmask. Successors always carry a
     # lower id than the component pointing at them, so one pass upward finds
     # every component's successors already summed.
+    #
+    # A knot is a dead end rather than a link: everyone inside one reaches
+    # everyone else there, so a chain allowed to pass through would come out
+    # the far side proving whatever it liked. Beating a player caught in a
+    # contradiction says he is behind you, and nothing about who is behind him.
     reach = [0] * count
     for c in range(count):
         bits = 0
         for d in successors[c]:
-            bits |= (1 << d) | reach[d]
+            bits |= 1 << d
+            if sizes[d] == 1:
+                bits |= reach[d]
         reach[c] = bits
 
     def established(i: int) -> bool:
-        """Has the voter shown order[i] over order[i + 1]?"""
-        return comp[i] != comp[i + 1] and bool((reach[comp[i]] >> comp[i + 1]) & 1)
+        """Has the voter shown order[i] over order[i + 1]?
+
+        A result between the two of them is the whole answer, whatever else
+        either is tangled in. Failing that it takes a chain, and a chain is
+        only worth as much as its weakest link: one that starts or ends in a
+        knot proves nothing about the individual standing in it, since his
+        fellows there reach him both ways round.
+        """
+        if (i, i + 1) in records:
+            return True
+        if comp[i] == comp[i + 1] or sizes[comp[i]] > 1 or sizes[comp[i + 1]] > 1:
+            return False
+        return bool((reach[comp[i]] >> comp[i + 1]) & 1)
 
     settled = set()
     for i, player_id in enumerate(order):
