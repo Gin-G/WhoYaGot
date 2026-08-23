@@ -24,6 +24,7 @@ export function MyListPage({ league, positions, position, onPositionChange }: Pr
   const pages = query.data?.pages
   const entries = useMemo(() => pages?.flatMap((page) => page.entries) ?? [], [pages])
   const total = pages?.[0]?.total ?? 0
+  const settled = pages?.[0]?.settled ?? 0
 
   // Only a settled response proves the board is empty. Treating "no data yet"
   // as empty would shut the panel every time a position chip is tapped, since
@@ -55,6 +56,14 @@ export function MyListPage({ league, positions, position, onPositionChange }: Pr
               <span className="tabular text-[0.65rem] uppercase tracking-wider text-ink-soft">
                 {!pages ? '' : entries.length < total ? `${entries.length} of ${total}` : `${total} ranked`}
               </span>
+              {settled > 0 && (
+                <span
+                  title="Places your own picks have settled — more voting cannot move them"
+                  className="tabular text-[0.65rem] uppercase tracking-wider text-verdict-up"
+                >
+                  {settled} set
+                </span>
+              )}
               {canExport && (
                 <button
                   type="button"

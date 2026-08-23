@@ -69,6 +69,8 @@ export interface RankingEntry {
   rank: number
   /** Places above (+) or below (-) where the crowd has him. Null if unrated. */
   versus_crowd?: number | null
+  /** Your own picks fix this place: more voting cannot move it. */
+  locked?: boolean
   player: PlayerCard
 }
 
@@ -77,6 +79,8 @@ export interface Rankings {
   position?: string | null
   scope: string
   total: number
+  /** Places on the whole board your picks have settled, not just this page. */
+  settled?: number
   entries: RankingEntry[]
 }
 

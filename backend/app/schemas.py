@@ -106,6 +106,11 @@ class RankingEntry(BaseModel):
     # board only. Positive means the voter rates him higher than the crowd
     # does. None when the crowd has not rated him, or on the crowd's own board.
     versus_crowd: Optional[int] = None
+    # True when the voter's own picks fix this place: they have shown this
+    # player over the one below and under the one above, so more voting cannot
+    # move him. Personal board only — the crowd's order is never anyone's to
+    # settle.
+    locked: bool = False
     player: PlayerCard
 
 
@@ -113,6 +118,9 @@ class RankingsOut(BaseModel):
     league: str
     position: Optional[str] = None
     scope: str
+    # How many places on the whole board the voter's picks have settled, not
+    # just on the page being returned. Zero on the crowd's board.
+    settled: int = 0
     total: int
     entries: list[RankingEntry]
 
