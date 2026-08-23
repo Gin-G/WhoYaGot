@@ -1,6 +1,6 @@
 ---
 status: active
-progress: 70
+progress: 74
 ---
 
 # WhoYaGot
@@ -61,12 +61,13 @@ Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The vo
 - [x] Put the W/YG mark on the launcher icon, the browser tab and the board tile
 - [x] Green a rank once your own picks settle it, and count how many are set
 - [ ] Confirm the Yahoo and Drafters column shapes against a real import
-- [ ] Deal the pairs that would settle the most places, once a board is mostly set
+- [ ] Raise the consolidation share once real voting shows a board settling too slowly
+- [x] Deal the pairs that would settle the most places, once a board is mostly set
+- [x] Link rankings rows to their picks, the way the personal board does
 - [ ] Watch whether a 50/50 cross-position split is the right mix in practice
 - [ ] Revisit pool depth once cross-position votes show what positions are worth
 - [ ] Let the global board be read as one list rather than four ladders
 - [ ] Show a player's head-to-head record on his own card
-- [ ] Link rankings rows to their picks, the way the personal board does
 - [ ] Add an MLB source adapter, the first league after NFL
 - [ ] Add NHL, NBA, Soccer and Golf adapters once MLB proves the shape
 - [ ] Ask NFL-API for expected games played, which the season endpoint lacks
