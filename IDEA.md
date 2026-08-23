@@ -1,6 +1,6 @@
 ---
 status: active
-progress: 74
+progress: 78
 ---
 
 # WhoYaGot
@@ -64,6 +64,8 @@ Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The vo
 - [ ] Tune the consolidation share against real voting: 0.6 beat both 0.25 and 0.9
 - [x] Deal the pairs that would settle the most places, once a board is mostly set
 - [x] Link rankings rows to their picks, the way the personal board does
+- [x] Order a board by the picks, so nobody sits below a player he was taken over
+- [x] Break a knot of contradictory picks at its weakest link, not its strongest
 - [ ] Watch whether a 50/50 cross-position split is the right mix in practice
 - [ ] Revisit pool depth once cross-position votes show what positions are worth
 - [ ] Let the global board be read as one list rather than four ladders
