@@ -90,6 +90,17 @@ RANKED_PAIR_MIN_VOTES = 20
 # against their #40 tells us nothing we don't already know.
 RANKED_PAIR_SPAN = 4
 
+# How sharply the consolidation draw leans toward the top of the voter's list.
+# A list is read from the top, and that is where an unbeaten pile-up shows, so
+# a gap at second place is worth more attention than one at fiftieth.
+#
+# Explicit rather than emergent: this used to fall out of how many near
+# neighbours each row happened to have. Drawing gaps instead makes the set
+# sparser, which quietly flattened the lean, so it is stated here where it can
+# be argued with. Higher concentrates harder on the leaders; 1.0 is an even
+# harmonic spread that leaves the top of a long board barely favoured.
+RANKED_PAIR_TOP_BIAS = 1.25
+
 
 class NoMatchupAvailable(RuntimeError):
     pass
@@ -328,8 +339,8 @@ def _pick_ranked_pair(
         if frozenset({upper[0].id, lower[0].id}) in seen:
             continue
         gaps.append((upper, lower))
-        # Toward the top as before, lifted by how much closing it settles.
-        weights.append((1.0 + reading.gain(i, last)) / (i + 1))
+        # Toward the top, lifted by how much closing this one settles.
+        weights.append((1.0 + reading.gain(i, last)) / (i + 1) ** RANKED_PAIR_TOP_BIAS)
     if gaps:
         return random.choices(gaps, weights)[0]
 

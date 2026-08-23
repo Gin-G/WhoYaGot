@@ -61,7 +61,7 @@ Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The vo
 - [x] Put the W/YG mark on the launcher icon, the browser tab and the board tile
 - [x] Green a rank once your own picks settle it, and count how many are set
 - [ ] Confirm the Yahoo and Drafters column shapes against a real import
-- [ ] Raise the consolidation share once real voting shows a board settling too slowly
+- [ ] Tune the consolidation share against real voting: 0.6 beat both 0.25 and 0.9
 - [x] Deal the pairs that would settle the most places, once a board is mostly set
 - [x] Link rankings rows to their picks, the way the personal board does
 - [ ] Watch whether a 50/50 cross-position split is the right mix in practice
