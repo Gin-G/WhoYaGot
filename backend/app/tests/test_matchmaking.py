@@ -644,3 +644,43 @@ def test_players_from_another_league_never_appear(db, pool):
         _, a, b = matchmaking.create_matchup(db, "nfl", position="QB")
         assert a.league == b.league == "nfl"
     db.commit()
+
+
+def test_a_consolidation_pair_is_always_a_gap_in_the_order(db, make_pool):
+    """The draw closes gaps rather than re-treading settled ground.
+
+    Asserted over every draw rather than on average: a pair that is not a gap
+    cannot settle anything, so drawing one at all is the bug.
+    """
+    players = make_pool(6)
+    ratings = {player.id: 1700.0 - i * 20 for i, player in enumerate(players)}
+    pool = [(player, db.get(PlayerRating, player.id)) for player in players]
+
+    def ids(i):
+        return players[i].id
+
+    # Shown: 0>1, 1>2 and 3>4. That leaves 2-v-3 and 4-v-5 as the only places
+    # in the order the voter has not answered.
+    history = [(ids(0), ids(1)), (ids(1), ids(2)), (ids(3), ids(4))]
+    gaps = {frozenset({ids(2), ids(3)}), frozenset({ids(4), ids(5)})}
+
+    for _ in range(50):
+        pair = matchmaking._pick_ranked_pair(pool, history, ratings)
+        assert pair is not None
+        assert frozenset({pair[0][0].id, pair[1][0].id}) in gaps
+
+
+def test_consolidation_falls_back_once_every_gap_is_closed(db, make_pool):
+    """A fully shown order has nothing left to settle, so spread out instead."""
+    players = make_pool(6)
+    ratings = {player.id: 1700.0 - i * 20 for i, player in enumerate(players)}
+    pool = [(player, db.get(PlayerRating, player.id)) for player in players]
+    history = [(players[i].id, players[i + 1].id) for i in range(5)]
+
+    settled = {frozenset({players[i].id, players[i + 1].id}) for i in range(5)}
+    for _ in range(30):
+        pair = matchmaking._pick_ranked_pair(pool, history, ratings)
+        if pair is None:
+            continue
+        # Whatever it deals now, it is not a neighbouring pair already judged.
+        assert frozenset({pair[0][0].id, pair[1][0].id}) not in settled

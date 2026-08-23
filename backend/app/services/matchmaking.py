@@ -32,6 +32,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from database.models import Matchup, Player, PlayerRating, UserPlayerRating, Vote
+from services.settling import analyse
 from services.sources import get_source
 
 logger = logging.getLogger(__name__)
@@ -311,9 +312,31 @@ def _pick_ranked_pair(
     candidates.sort(key=lambda pr: ratings.get(pr[0].id, pr[1].rating), reverse=True)
     seen = {frozenset(pair) for pair in history}
 
-    # Weighted toward the top, because a list is read from the top and drawing
-    # evenly over 150 ranked players would barely touch the leaders — who are
-    # precisely the ones sitting undefeated for want of having played each other.
+    # The gaps in the order this voter has not closed yet. Answering one of
+    # these is the only thing that can settle a place, so they are dealt ahead
+    # of anything else — and the ones bordering an already-settled run come
+    # first, since the places either side are waiting on that single answer.
+    reading = analyse([pr[0].id for pr in candidates], history)
+    last = len(candidates) - 2
+    gaps, weights = [], []
+    for i in reading.open_boundaries:
+        upper, lower = candidates[i], candidates[i + 1]
+        # A boundary can sit open on a pair already judged, when the voter took
+        # the lower-rated player and the rating has not caught up yet. Asking
+        # again would only collect the same answer: the order closes itself as
+        # the win carries him past, or it never does.
+        if frozenset({upper[0].id, lower[0].id}) in seen:
+            continue
+        gaps.append((upper, lower))
+        # Toward the top as before, lifted by how much closing it settles.
+        weights.append((1.0 + reading.gain(i, last)) / (i + 1))
+    if gaps:
+        return random.choices(gaps, weights)[0]
+
+    # Nothing left to settle among these: every neighbouring order is either
+    # shown already or stuck in a contradiction another vote cannot break. Fall
+    # back to spreading comparisons over the near neighbourhood, which is what
+    # keeps the top of a list from filling with players who never met.
     neighbours, weights = [], []
     for i in range(len(candidates)):
         for j in range(i + 1, min(i + 1 + RANKED_PAIR_SPAN, len(candidates))):
@@ -322,8 +345,6 @@ def _pick_ranked_pair(
             neighbours.append((candidates[i], candidates[j]))
             weights.append(1.0 / (i + 1))
 
-    # Every neighbouring pair has been judged already; the caller's normal draw
-    # will bring in someone new instead.
     return random.choices(neighbours, weights)[0] if neighbours else None
 
 

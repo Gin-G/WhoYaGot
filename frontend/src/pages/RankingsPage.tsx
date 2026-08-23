@@ -49,7 +49,7 @@ export function RankingsPage({ league, positions, position, onPositionChange }: 
             <>
               <ol>
                 {entries.map((entry) => (
-                  <RankingRow key={entry.player.id} entry={entry} />
+                  <RankingRow key={entry.player.id} entry={entry} showPicks />
                 ))}
               </ol>
               {query.hasNextPage && (

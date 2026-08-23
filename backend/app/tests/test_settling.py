@@ -4,8 +4,8 @@ import uuid
 
 import pytest
 
-from api.rankings import _settled_ranks
 from database.models import Matchup, User, Vote
+from services.settling import analyse
 
 
 @pytest.fixture()
@@ -41,8 +41,18 @@ def _pick(db, voter, winner, loser):
     db.commit()
 
 
+def _read(db, voter, board):
+    """The voter's picks, read against this board — as the endpoint does it."""
+    picks = (
+        db.query(Vote.winner_id, Vote.loser_id)
+        .filter(Vote.user_id == voter.id, Vote.league == "nfl")
+        .all()
+    )
+    return analyse([p.id for p in board], picks)
+
+
 def _settled(db, voter, board):
-    return _settled_ranks(db, voter.id, "nfl", [p.id for p in board])
+    return _read(db, voter, board).settled
 
 
 def test_nothing_is_settled_without_picks(db, voter, make_pool):
@@ -157,3 +167,44 @@ def test_a_long_chain_settles_every_place_along_it(db, voter, make_pool):
         _pick(db, voter, upper, lower)
 
     assert _settled(db, voter, board) == {p.id for p in board}
+
+
+def test_a_gap_bordering_a_settled_run_is_worth_more_than_one_in_the_open(db, voter, make_pool):
+    """`gain` is what makes a board settle outward from what is already done."""
+    board = make_pool(6)
+    # 0>1>2 settles the top; the rest of the board is untouched.
+    _pick(db, voter, board[0], board[1])
+    _pick(db, voter, board[1], board[2])
+
+    reading = _read(db, voter, board)
+    last = len(board) - 2
+    # Boundary 2 sits against the settled run: closing it settles third place.
+    # Boundary 3 has open country on both sides and settles nothing on its own.
+    assert reading.gain(2, last) == 1
+    assert reading.gain(3, last) == 0
+    # The foot of the board counts as a settled edge, since nothing sits under
+    # it — so the last boundary is worth a place too.
+    assert reading.gain(last, last) == 1
+
+
+def test_a_cycle_is_not_offered_as_a_gap_to_close(db, voter, make_pool):
+    """Another vote cannot break it — the contradicting pick stays on record."""
+    board = make_pool(4)
+    _pick(db, voter, board[0], board[1])
+    _pick(db, voter, board[1], board[2])
+    _pick(db, voter, board[2], board[0])
+
+    reading = _read(db, voter, board)
+    assert reading.settled == set()
+    # Only the gap below the cycle is worth dealing.
+    assert reading.open_boundaries == [2]
+
+
+def test_every_gap_closed_leaves_nothing_to_deal(db, voter, make_pool):
+    board = make_pool(5)
+    for upper, lower in zip(board, board[1:]):
+        _pick(db, voter, upper, lower)
+
+    reading = _read(db, voter, board)
+    assert reading.settled == {p.id for p in board}
+    assert reading.open_boundaries == []
