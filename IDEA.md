@@ -1,6 +1,6 @@
 ---
 status: active
-progress: 65
+progress: 70
 ---
 
 # WhoYaGot
@@ -33,7 +33,7 @@ HTML comments are stripped on read, so this block never reaches the board.
 
 An app that provides player tiles, this player, or that player, so that we can build a database of player preferences for users logged in via Google and overall across all users. It will start with NFL, and then expand to MLB, NHL, NBA, Soccer, Golf, etc. with selectable league tabs
 
-Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The voting loop, both ladders, sign-in and the Android build all work, matchups come almost entirely from the 192 players anyone would draft, and a finished board now reads against the crowd and exports to the site you actually draft on. What is left is the other leagues, and the tuning that only shows up once a board has been used for a while.
+Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The voting loop, both ladders, sign-in and the Android build all work, matchups come almost entirely from the 192 players anyone would draft, and a board now says which of its places your own picks have settled, reads against the crowd, and exports to the site you actually draft on. What is left is the other leagues, and the tuning that only shows up once a board has been used for a while.
 
 ## Todos
 
@@ -59,7 +59,9 @@ Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The vo
 - [x] Export a board to MyFantasyLeague, Yahoo, Drafters or a spreadsheet
 - [x] Page every list to its end instead of stopping at the first hundred
 - [x] Put the W/YG mark on the launcher icon, the browser tab and the board tile
+- [x] Green a rank once your own picks settle it, and count how many are set
 - [ ] Confirm the Yahoo and Drafters column shapes against a real import
+- [ ] Deal the pairs that would settle the most places, once a board is mostly set
 - [ ] Watch whether a 50/50 cross-position split is the right mix in practice
 - [ ] Revisit pool depth once cross-position votes show what positions are worth
 - [ ] Let the global board be read as one list rather than four ladders
