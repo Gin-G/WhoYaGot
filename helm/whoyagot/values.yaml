@@ -7,7 +7,7 @@ api:
   container:
     # CI rewrites the tag on this line after each successful build, and ArgoCD
     # deploys the result. Keep the repository and tag together on one line.
-    image: docker.io/ncging/whoyagot-api:2026-08-23.17.07
+    image: docker.io/ncging/whoyagot-api:2026-08-24.01.12
     imagePullPolicy: Always
     port: 8000
     memoryRequest: "256Mi"
@@ -29,7 +29,7 @@ web:
   replicaCount: 1
   container:
     # CI rewrites the tag on this line too.
-    image: docker.io/ncging/whoyagot-web:2026-08-23.17.07
+    image: docker.io/ncging/whoyagot-web:2026-08-24.01.12
     imagePullPolicy: Always
     port: 8080
     memoryRequest: "32Mi"
