@@ -5,7 +5,7 @@ import { PlayerHalf } from './PlayerHalf'
 interface Props {
   matchup: Matchup
   picked: 'a' | 'b' | null
-  result: { rating: number; delta: number } | null
+  result: { rating: number; delta: number; agrees?: number; differs?: number } | null
   onPick: (side: 'a' | 'b') => void
 }
 

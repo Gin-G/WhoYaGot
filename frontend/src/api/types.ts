@@ -62,6 +62,9 @@ export interface VoteResult {
     personal?: { winner: RatingChange; loser: RatingChange }
   }
   total_votes: number
+  /** The crowd's call on this exact pairing, counting the vote just cast. */
+  crowd_agrees?: number
+  crowd_differs?: number
   next: Matchup | null
 }
 

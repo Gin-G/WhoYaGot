@@ -1,6 +1,6 @@
 ---
 status: active
-progress: 78
+progress: 80
 ---
 
 # WhoYaGot
@@ -66,10 +66,10 @@ Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The vo
 - [x] Link rankings rows to their picks, the way the personal board does
 - [x] Order a board by the picks, so nobody sits below a player he was taken over
 - [x] Break a knot of contradictory picks at its weakest link, not its strongest
+- [x] Show a player's head-to-head record on his own card, after the pick not before
 - [ ] Watch whether a 50/50 cross-position split is the right mix in practice
 - [ ] Revisit pool depth once cross-position votes show what positions are worth
-- [ ] Let the global board be read as one list rather than four ladders
-- [ ] Show a player's head-to-head record on his own card
+- [ ] Unspread the ladders: k-factor makes a well-voted position rank wider, not better
 - [ ] Add an MLB source adapter, the first league after NFL
 - [ ] Add NHL, NBA, Soccer and Golf adapters once MLB proves the shape
 - [ ] Ask NFL-API for expected games played, which the season endpoint lacks

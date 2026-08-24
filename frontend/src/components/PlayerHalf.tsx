@@ -23,10 +23,24 @@ interface Props {
   colorOverride?: string
   state: 'idle' | 'won' | 'lost'
   /** Elo movement, shown only after the pick so it can't sway the vote. */
-  result?: { rating: number; delta: number } | null
+  result?: { rating: number; delta: number; agrees?: number; differs?: number } | null
   onPick: () => void
   disabled: boolean
 }
+
+/**
+ * The crowd's record on this pairing, from the perspective of the pick just
+ * made. Silent on the first vote a pair has ever had — "100% agree" off one
+ * result is a number pretending to be a consensus.
+ */
+function crowdLine(agrees?: number, differs?: number): string | null {
+  if (agrees === undefined || differs === undefined) return null
+  const total = agrees + differs
+  if (total < 2) return null
+  const share = Math.round((agrees / total) * 100)
+  return `${share}% agree  ·  ${agrees}\u2013${differs}`
+}
+
 
 export function PlayerHalf({
   player,
@@ -156,6 +170,14 @@ export function PlayerHalf({
             {result.delta >= 0 ? '+' : ''}
             {result.delta.toFixed(0)} → {result.rating.toFixed(0)}
           </span>
+          {/* How the room has called this same pair, and only ever afterwards:
+              told beforehand, a voter answers the room instead of the
+              question, and the room stops learning anything. */}
+          {crowdLine(result.agrees, result.differs) && (
+            <div className="mt-1.5 text-[0.62rem] uppercase tracking-wider" style={{ color: dim }}>
+              {crowdLine(result.agrees, result.differs)}
+            </div>
+          )}
         </div>
       )}
     </button>

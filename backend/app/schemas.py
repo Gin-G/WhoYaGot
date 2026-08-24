@@ -70,6 +70,12 @@ class VoteOut(BaseModel):
     loser_id: int
     ratings: dict
     total_votes: int = Field(description="How many votes this voter has cast overall")
+    # How the crowd has called this exact pairing, counting the vote just cast:
+    # wins for the player this voter took, then for the one they passed over.
+    # Sent back with the result rather than offered beforehand — knowing which
+    # way a room leans before answering is how a room stops learning anything.
+    crowd_agrees: int = 0
+    crowd_differs: int = 0
     next: Optional[MatchupOut] = None
 
 

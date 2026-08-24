@@ -154,6 +154,17 @@ def cast_vote(
             # The vote is already saved; the client can retry /next on its own.
             logger.warning("could not deal follow-up matchup: %s", exc)
 
+    agrees = (
+        db.query(Vote)
+        .filter(Vote.winner_id == winner.id, Vote.loser_id == loser.id)
+        .count()
+    )
+    differs = (
+        db.query(Vote)
+        .filter(Vote.winner_id == loser.id, Vote.loser_id == winner.id)
+        .count()
+    )
+
     return VoteOut(
         recorded=True,
         pick_id=pick.id,
@@ -163,6 +174,8 @@ def cast_vote(
         loser_id=loser.id,
         ratings=ratings,
         total_votes=vote_count(db, user_id, session_id),
+        crowd_agrees=agrees,
+        crowd_differs=differs,
         next=following,
     )
 

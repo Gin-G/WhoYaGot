@@ -24,7 +24,12 @@ export function VotePage({ league, positions, position, onPositionChange }: Prop
   const undo = useUndoPick()
 
   const [picked, setPicked] = useState<'a' | 'b' | null>(null)
-  const [result, setResult] = useState<{ rating: number; delta: number } | null>(null)
+  const [result, setResult] = useState<{
+    rating: number
+    delta: number
+    agrees?: number
+    differs?: number
+  } | null>(null)
   const [votes, setVotes] = useState<number | null>(null)
 
   // The pick just made, kept only so it can be taken back. A pick made too
@@ -70,6 +75,8 @@ export function VotePage({ league, positions, position, onPositionChange }: Prop
         setResult({
           rating: outcome.ratings.global.winner.rating,
           delta: outcome.ratings.global.winner.delta,
+          agrees: outcome.crowd_agrees,
+          differs: outcome.crowd_differs,
         })
         setVotes(outcome.total_votes)
         setLast({ id: outcome.pick_id, winner: winner.name, loser: loser.name })
