@@ -244,3 +244,138 @@ def test_you_cannot_revise_someone_elses_pick(db, pool, voter):
         )
 
     assert exc.value.status_code == 404
+
+
+# --- starting a player over ---------------------------------------------------
+
+
+def test_resetting_a_player_takes_back_every_pick_he_was_in(db, make_pool):
+    """The preseason case: what was answered about him is no longer the question."""
+    players = make_pool(6)
+    injured, others = players[0], players[1:]
+    user = User(google_sub="reset-1")
+    db.add(user)
+    db.flush()
+
+    for other in others:
+        _vote(db, injured, other, user_id=user.id)
+    # A pick with nothing to do with him, which must survive untouched.
+    _vote(db, others[0], others[1], user_id=user.id)
+    db.commit()
+
+    from api.picks import reset_player
+
+    out = reset_player(injured.id, league="nfl", db=db, user=user, session_id=None)
+
+    survivors = db.query(Vote).filter(Vote.user_id == user.id).all()
+    assert len(survivors) == 1
+    assert injured.id not in (survivors[0].winner_id, survivors[0].loser_id)
+    assert out.total == 1
+
+
+def test_a_reset_player_falls_off_the_board(db, make_pool):
+    players = make_pool(6)
+    injured, others = players[0], players[1:]
+    user = User(google_sub="reset-2")
+    db.add(user)
+    db.flush()
+    for other in others:
+        _vote(db, injured, other, user_id=user.id)
+    db.commit()
+
+    before = db.get(UserPlayerRating, (user.id, injured.id))
+    assert before is not None and before.votes >= 3
+
+    from api.picks import reset_player
+
+    reset_player(injured.id, league="nfl", db=db, user=user, session_id=None)
+
+    after = db.get(UserPlayerRating, (user.id, injured.id))
+    assert after is None or after.votes == 0
+
+
+def test_resetting_a_player_puts_his_pairs_back_on_the_table(db, make_pool):
+    """The answers will be different now, so the questions deserve asking again."""
+    players = make_pool(4)
+    injured, other = players[0], players[1]
+    user = User(google_sub="reset-3")
+    db.add(user)
+    db.flush()
+    vote = _vote(db, injured, other, user_id=user.id)
+    matchup_id = vote.matchup_id
+    db.commit()
+    assert db.get(Matchup, matchup_id).answered is True
+
+    from api.picks import reset_player
+
+    reset_player(injured.id, league="nfl", db=db, user=user, session_id=None)
+    assert db.get(Matchup, matchup_id).answered is False
+
+
+def test_a_reset_leaves_everyone_elses_places_alone(db, make_pool):
+    """Removing him removes what he was evidence for, and nothing besides."""
+    players = make_pool(6)
+    injured = players[0]
+    a, b, c = players[1], players[2], players[3]
+    user = User(google_sub="reset-4")
+    db.add(user)
+    db.flush()
+    _vote(db, a, b, user_id=user.id)
+    _vote(db, b, c, user_id=user.id)
+    _vote(db, injured, a, user_id=user.id)
+    db.commit()
+
+    from api.picks import reset_player
+
+    reset_player(injured.id, league="nfl", db=db, user=user, session_id=None)
+
+    # a still over b, b still over c, on the ladder rebuilt without him.
+    rating = lambda p: db.get(UserPlayerRating, (user.id, p.id)).rating
+    assert rating(a) > rating(b) > rating(c)
+
+
+def test_a_reset_only_touches_the_asker(db, make_pool):
+    players = make_pool(4)
+    injured, other = players[0], players[1]
+    mine = User(google_sub="reset-5")
+    theirs = User(google_sub="reset-6")
+    db.add_all([mine, theirs])
+    db.flush()
+    _vote(db, injured, other, user_id=mine.id)
+    _vote(db, injured, other, user_id=theirs.id)
+    db.commit()
+
+    from api.picks import reset_player
+
+    reset_player(injured.id, league="nfl", db=db, user=mine, session_id=None)
+
+    assert db.query(Vote).filter(Vote.user_id == mine.id).count() == 0
+    assert db.query(Vote).filter(Vote.user_id == theirs.id).count() == 1
+
+
+def test_resetting_a_player_nobody_has_judged_is_harmless(db, make_pool):
+    players = make_pool(3)
+    user = User(google_sub="reset-7")
+    db.add(user)
+    db.flush()
+    _vote(db, players[1], players[2], user_id=user.id)
+    db.commit()
+
+    from api.picks import reset_player
+
+    out = reset_player(players[0].id, league="nfl", db=db, user=user, session_id=None)
+    assert out.total == 1
+
+
+def test_resetting_an_unknown_player_is_refused(db, make_pool):
+    make_pool(3)
+    user = User(google_sub="reset-8")
+    db.add(user)
+    db.flush()
+    db.commit()
+
+    from api.picks import reset_player
+
+    with pytest.raises(HTTPException) as raised:
+        reset_player(999999, league="nfl", db=db, user=user, session_id=None)
+    assert raised.value.status_code == 404

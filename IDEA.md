@@ -1,6 +1,6 @@
 ---
 status: active
-progress: 80
+progress: 82
 ---
 
 # WhoYaGot
@@ -61,12 +61,14 @@ Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The vo
 - [x] Put the W/YG mark on the launcher icon, the browser tab and the board tile
 - [x] Green a rank once your own picks settle it, and count how many are set
 - [ ] Confirm the Yahoo and Drafters column shapes against a real import
+- [ ] Set an injured player aside so he stops being dealt, rather than re-ranking him
 - [ ] Tune the consolidation share against real voting: 0.6 beat both 0.25 and 0.9
 - [x] Deal the pairs that would settle the most places, once a board is mostly set
 - [x] Link rankings rows to their picks, the way the personal board does
 - [x] Order a board by the picks, so nobody sits below a player he was taken over
 - [x] Break a knot of contradictory picks at its weakest link, not its strongest
 - [x] Show a player's head-to-head record on his own card, after the pick not before
+- [x] Start a player over when his situation changes, taking back every pick he was in
 - [ ] Watch whether a 50/50 cross-position split is the right mix in practice
 - [ ] Revisit pool depth once cross-position votes show what positions are worth
 - [ ] Unspread the ladders: k-factor makes a well-voted position rank wider, not better

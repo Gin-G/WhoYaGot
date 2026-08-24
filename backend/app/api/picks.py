@@ -149,6 +149,67 @@ def _rebuild(db: Session, league: str, user_id: Optional[int]) -> None:
         elo.replay(db, league, user_id=user_id)
 
 
+@router.delete("/player/{player_id}", response_model=PicksOut)
+def reset_player(
+    player_id: int,
+    league: str = Query("nfl"),
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(current_user_optional),
+    session_id: Optional[str] = Depends(get_session_id),
+):
+    """Take back every pick this player was part of, and start him over.
+
+    A board is a record of what was true when it was built. A hamstring in the
+    third preseason week does not just move a player down it — it makes every
+    answer already given about him an answer to a question nobody is asking any
+    more. He was taken over thirty others as a starter, and each of those picks
+    is still holding him up.
+
+    So this drops them rather than adjusting them. He falls back under the vote
+    threshold, off the board, and returns to the pool to be asked about again
+    from nothing.
+
+    Everyone else keeps their own picks, but the board can still move under
+    them: his picks were evidence about his opponents too, and a player whose
+    place rested mainly on beating him can fall under the threshold himself and
+    drop off alongside. That is the honest result rather than a side effect —
+    what was known about him was known through a player who has changed.
+
+    The pairs go back on the table too, so the matchmaker is free to deal them
+    again — which is the point, because the answers will be different now.
+    """
+    league = league.lower()
+    user_id, session_id = voter_identity(user, session_id)
+    if user_id is None and session_id is None:
+        raise HTTPException(status_code=401, detail="no voter to attribute this to")
+
+    if db.get(Player, player_id) is None:
+        raise HTTPException(status_code=404, detail="unknown player")
+
+    votes = _owned_by(
+        db.query(Vote).filter(
+            Vote.league == league,
+            or_(Vote.winner_id == player_id, Vote.loser_id == player_id),
+        ),
+        user_id,
+        session_id,
+    ).all()
+
+    for vote in votes:
+        matchup = db.get(Matchup, vote.matchup_id)
+        if matchup is not None:
+            matchup.answered = False
+        db.delete(vote)
+
+    if votes:
+        db.flush()
+        _rebuild(db, league, user_id)
+    db.commit()
+
+    logger.info("reset player %s in %s: %d picks taken back", player_id, league, len(votes))
+    return _list_picks(db, league, user_id, session_id)
+
+
 @router.delete("/{vote_id}", response_model=PicksOut)
 def undo_pick(
     vote_id: int,

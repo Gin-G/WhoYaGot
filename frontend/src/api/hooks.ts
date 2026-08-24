@@ -169,6 +169,26 @@ export function useUndoPick() {
   })
 }
 
+/**
+ * Take back every pick a player was part of.
+ *
+ * Irreversible, and meant to be: the point is that what was answered about him
+ * is no longer the question. The caller confirms before firing this.
+ */
+export function useResetPlayer(league: string) {
+  const settle = useAfterPickChange()
+
+  return useMutation({
+    mutationFn: async (playerId: number) => {
+      const { data } = await apiClient.delete<Picks>(`/picks/player/${playerId}`, {
+        params: { league },
+      })
+      return data
+    },
+    onSuccess: settle,
+  })
+}
+
 export function useRevisePick() {
   const settle = useAfterPickChange()
 

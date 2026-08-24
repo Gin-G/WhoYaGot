@@ -1,8 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { describeError } from '../api/client'
-import { usePicks, useRevisePick, useUndoPick } from '../api/hooks'
+import { usePicks, useResetPlayer, useRevisePick, useUndoPick } from '../api/hooks'
 import type { Pick, PlayerCard } from '../api/types'
 import { LoadMore } from '../components/LoadMore'
 import { PositionChips } from '../components/PositionChips'
@@ -142,7 +142,9 @@ export function HistoryPage({ league, positions, position, onPositionChange }: P
   const query = usePicks(league, position, playerId)
   const undo = useUndoPick()
   const revise = useRevisePick()
-  const busy = undo.isPending || revise.isPending
+  const reset = useResetPlayer(league)
+  const [confirming, setConfirming] = useState(false)
+  const busy = undo.isPending || revise.isPending || reset.isPending
 
   const pages = query.data?.pages
   const picks = useMemo(() => pages?.flatMap((page) => page.picks) ?? [], [pages])
@@ -154,11 +156,12 @@ export function HistoryPage({ league, positions, position, onPositionChange }: P
       : undefined
 
   const setPlayer = (id: number | null) => {
+    setConfirming(false)
     setParams(id === null ? {} : { player: String(id) }, { replace: true })
   }
 
   const failure = query.isError ? describeError(query.error) : null
-  const changeFailure = undo.error ?? revise.error
+  const changeFailure = undo.error ?? revise.error ?? reset.error
 
   return (
     <div className="flex h-full flex-col bg-concrete-light">
@@ -181,18 +184,71 @@ export function HistoryPage({ league, positions, position, onPositionChange }: P
           </div>
 
           {playerId !== null && (
-            <button
-              type="button"
-              onClick={() => setPlayer(null)}
-              className="sign mb-3 flex w-full items-center justify-between border-2 border-ink px-3 py-2 text-[0.62rem] text-ink transition-colors hover:bg-ink hover:text-chalk"
-            >
-              <span className="truncate">
-                Only {filtered?.name ?? 'this player'}
-              </span>
-              <span aria-hidden className="ml-2 shrink-0">
-                clear ✕
-              </span>
-            </button>
+            <div className="mb-3">
+              <button
+                type="button"
+                onClick={() => setPlayer(null)}
+                className="sign flex w-full items-center justify-between border-2 border-ink px-3 py-2 text-[0.62rem] text-ink transition-colors hover:bg-ink hover:text-chalk"
+              >
+                <span className="truncate">
+                  Only {filtered?.name ?? 'this player'}
+                </span>
+                <span aria-hidden className="ml-2 shrink-0">
+                  clear ✕
+                </span>
+              </button>
+
+              {/* A board records what was true when it was built. When that
+                  stops being true of a player — a hamstring in the third
+                  preseason week — every answer already given about him is an
+                  answer to a question nobody is asking any more. */}
+              {picks.length > 0 &&
+                (confirming ? (
+                  <div className="mt-2 border-2 border-signal px-3 py-2">
+                    <p className="text-[0.72rem] leading-relaxed text-ink">
+                      Take back all {total} {total === 1 ? 'pick' : 'picks'}{' '}
+                      {filtered?.name ?? 'he'} was part of? He drops off your board and
+                      comes back round to be asked about again. Everyone else keeps their
+                      own picks, though anyone you knew mainly through him can slip too.
+                      This cannot be undone.
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          reset.mutate(playerId, {
+                            onSuccess: () => {
+                              setConfirming(false)
+                              setPlayer(null)
+                            },
+                          })
+                        }}
+                        className="sign border-2 border-signal bg-signal px-3 py-1.5 text-[0.6rem] text-chalk transition-opacity disabled:opacity-40"
+                      >
+                        {reset.isPending ? 'Starting him over' : 'Start him over'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setConfirming(false)}
+                        className="sign border-2 border-ink/25 px-3 py-1.5 text-[0.6rem] text-ink-soft transition-colors hover:border-ink hover:text-ink"
+                      >
+                        Keep them
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(true)}
+                    title="His situation changed — take back every pick he was part of"
+                    className="sign mt-2 w-full border-2 border-ink/25 px-3 py-2 text-[0.6rem] text-ink-soft transition-colors hover:border-signal hover:text-signal"
+                  >
+                    Start him over
+                  </button>
+                ))}
+            </div>
           )}
 
           {changeFailure && (
