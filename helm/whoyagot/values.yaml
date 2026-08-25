@@ -74,6 +74,9 @@ sync:
   schedule: "0 9 * * *"
   leagues:
     - nfl
+    # Backed by MLB's own Stats API, which is public and needs no key, so this
+    # one syncs without anything in OpenBao behind it.
+    - mlb
 
 # ── Secrets (OpenBao via External Secrets) ───────────────────────────────────
 secrets:

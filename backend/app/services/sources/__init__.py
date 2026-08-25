@@ -9,6 +9,7 @@ from services.sources.base import (  # noqa: F401
     get_source,
     register,
 )
+from services.sources import mlb  # noqa: F401  (registers "mlb")
 from services.sources import nfl  # noqa: F401  (registers "nfl")
 
 __all__ = [
