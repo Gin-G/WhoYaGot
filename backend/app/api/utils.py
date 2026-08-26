@@ -18,6 +18,13 @@ def get_session_id(x_session_id: Optional[str] = Header(None)) -> Optional[str]:
     return x_session_id
 
 
+def owned_by(q, user_id: Optional[int], session_id: Optional[str]):
+    """Narrow a vote query to the voter asking. Never trust an ID alone."""
+    if user_id is not None:
+        return q.filter(Vote.user_id == user_id)
+    return q.filter(Vote.session_id == session_id)
+
+
 def team_map(db: Session, league: str) -> dict[str, Team]:
     return {t.abbr: t for t in db.query(Team).filter(Team.league == league).all()}
 

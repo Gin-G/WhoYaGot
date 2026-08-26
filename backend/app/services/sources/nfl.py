@@ -14,6 +14,7 @@ from typing import Optional
 import httpx
 
 from config import NFL_API_URL, UPSTREAM_TIMEOUT
+from services.sources.colours import paint
 from services.sources.base import (
     PlayerSource,
     SourcePlayer,
@@ -161,7 +162,9 @@ class NFLSource(PlayerSource):
                     wordmark_url=row.get("team_wordmark"),
                 )
             )
-        return teams
+        # Upstream ships colours with every club, so this is a no-op today —
+        # it is here so a gap in the feed is filled rather than shown.
+        return paint(self.league, teams)
 
     def fetch_players(self, season: Optional[int] = None) -> list[SourcePlayer]:
         # An explicit season is taken at face value: a backfill asking for 2019

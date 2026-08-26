@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from api.utils import get_session_id, team_map, voter_identity
+from api.utils import get_session_id, owned_by, team_map, voter_identity
 from database.models import Matchup, Player, PlayerRating, User, Vote
 from database.session import get_db
 from schemas import PickOut, PicksOut, RevisePickIn, to_card
@@ -28,13 +28,6 @@ from services.security import current_user_optional
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def _owned_by(q, user_id: Optional[int], session_id: Optional[str]):
-    """Narrow a vote query to the voter asking. Never trust an ID alone."""
-    if user_id is not None:
-        return q.filter(Vote.user_id == user_id)
-    return q.filter(Vote.session_id == session_id)
 
 
 def _serialize(db: Session, votes: list[Vote]) -> list[PickOut]:
@@ -84,7 +77,7 @@ def _list_picks(
     if user_id is None and session_id is None:
         return PicksOut(league=league, total=0, picks=[])
 
-    q = _owned_by(db.query(Vote).filter(Vote.league == league), user_id, session_id)
+    q = owned_by(db.query(Vote).filter(Vote.league == league), user_id, session_id)
     if position:
         q = q.filter(Vote.position == position.upper())
     if player_id is not None:
@@ -134,7 +127,7 @@ def _load_own_vote(
     if user_id is None and session_id is None:
         raise HTTPException(status_code=401, detail="no voter to attribute this to")
 
-    vote = _owned_by(db.query(Vote).filter(Vote.id == vote_id), user_id, session_id).first()
+    vote = owned_by(db.query(Vote).filter(Vote.id == vote_id), user_id, session_id).first()
     if vote is None:
         # Deliberately the same answer whether the pick belongs to someone else
         # or does not exist. Which one it is, is not the asker's business.
@@ -186,7 +179,7 @@ def reset_player(
     if db.get(Player, player_id) is None:
         raise HTTPException(status_code=404, detail="unknown player")
 
-    votes = _owned_by(
+    votes = owned_by(
         db.query(Vote).filter(
             Vote.league == league,
             or_(Vote.winner_id == player_id, Vote.loser_id == player_id),

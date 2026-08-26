@@ -171,3 +171,60 @@ def record_result(
         }
 
     return result
+
+
+def snapshot(
+    db: Session, winner: Player, loser: Player, user_id: Optional[int] = None
+) -> dict:
+    """Where these two stand right now, before anything moves them."""
+    taken = {
+        "global": {
+            "winner": _get_global(db, winner).rating,
+            "loser": _get_global(db, loser).rating,
+        }
+    }
+    if user_id is not None:
+        taken["personal"] = {
+            "winner": _get_user(db, user_id, winner).rating,
+            "loser": _get_user(db, user_id, loser).rating,
+        }
+    return taken
+
+
+def movement_since(
+    db: Session,
+    winner: Player,
+    loser: Player,
+    before: dict,
+    user_id: Optional[int] = None,
+) -> dict:
+    """What a rebuild did to these two, in the shape a vote reports back.
+
+    A replay has no delta of its own to hand out: the answer it removed had been
+    moving ratings ever since it was given, and the pick that replaced it moved
+    them again. Reading both ends and subtracting is the only figure here that
+    is true — it is the whole of what changed, which is what the voter watched
+    happen.
+    """
+    now = {
+        "global": {
+            "winner": _get_global(db, winner).rating,
+            "loser": _get_global(db, loser).rating,
+        }
+    }
+    if user_id is not None:
+        now["personal"] = {
+            "winner": _get_user(db, user_id, winner).rating,
+            "loser": _get_user(db, user_id, loser).rating,
+        }
+
+    return {
+        scope: {
+            side: {
+                "rating": round(now[scope][side], 1),
+                "delta": round(now[scope][side] - before[scope][side], 1),
+            }
+            for side in ("winner", "loser")
+        }
+        for scope in now
+    }

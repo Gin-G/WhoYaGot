@@ -2,7 +2,7 @@
 
 import pytest
 
-from services.sources import get_source, mlb
+from services.sources import colours, get_source, mlb
 
 
 def _person(pid, name, position, *, hitting=None, pitching=None, **bio):
@@ -189,17 +189,59 @@ def test_every_club_carries_its_colours(monkeypatch):
     )
     teams = get_source("mlb").fetch_teams()
     assert len(teams) == 1
-    assert teams[0].color == mlb.TEAM_COLOURS["NYY"][0]
+    assert teams[0].color == colours.COLOURS["mlb"]["NYY"][0]
     assert teams[0].logo_url.endswith("/147.svg")
 
 
 def test_the_colour_map_covers_the_whole_league():
     """Thirty clubs, and the API spells Arizona AZ rather than ARI."""
-    assert len(mlb.TEAM_COLOURS) == 30
-    assert "AZ" in mlb.TEAM_COLOURS
+    assert len(colours.COLOURS["mlb"]) == 30
+    assert "AZ" in colours.COLOURS["mlb"]
 
 
 def test_the_pool_is_deeper_than_the_core_at_every_position():
     source = get_source("mlb")
     for position in source.positions:
         assert source.pool_depth[position] > source.core_depth[position], position
+
+
+# --- colours, which no feed of MLB's ships ------------------------------------
+
+
+def test_a_club_that_ships_its_own_colours_keeps_them():
+    """The registry stands in for a feed that stays quiet, never overrules one."""
+    from services.sources.base import SourceTeam
+
+    own = SourceTeam(abbr="NYY", name="New York Yankees", color="#123456", color2="#654321")
+    painted = colours.paint("mlb", [own])[0]
+    assert (painted.color, painted.color2) == ("#123456", "#654321")
+
+
+def test_a_club_that_ships_nothing_is_painted_from_file():
+    from services.sources.base import SourceTeam
+
+    bare = SourceTeam(abbr="NYY", name="New York Yankees")
+    painted = colours.paint("mlb", [bare])[0]
+    assert painted.color == colours.COLOURS["mlb"]["NYY"][0]
+    assert painted.color2 == colours.COLOURS["mlb"]["NYY"][1]
+
+
+def test_a_league_with_nothing_on_file_is_left_alone():
+    """The NFL serves its own, so its clubs must pass through untouched."""
+    from services.sources.base import SourceTeam
+
+    team = SourceTeam(abbr="BUF", name="Buffalo Bills", color="#00338D")
+    assert colours.paint("nfl", [team])[0].color == "#00338D"
+
+
+def test_missing_names_the_clubs_with_nothing_to_wear():
+    assert colours.missing("mlb", ["NYY", "BOS"]) == []
+    assert colours.missing("mlb", ["NYY", "XXX"]) == ["XXX"]
+
+
+def test_every_colour_on_file_is_a_hex_pair():
+    for league, clubs in colours.COLOURS.items():
+        for abbr, pair in clubs.items():
+            assert len(pair) == 2, f"{league} {abbr}"
+            for value in pair:
+                assert value.startswith("#") and len(value) == 7, f"{league} {abbr} {value}"

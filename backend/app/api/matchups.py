@@ -5,9 +5,10 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
-from api.utils import get_session_id, team_map, vote_count, voter_identity
+from api.utils import get_session_id, owned_by, team_map, vote_count, voter_identity
 from database.models import Matchup, Player, PlayerRating, User, Vote
 from database.session import get_db
 from schemas import MatchupOut, SkipIn, VoteIn, VoteOut, to_card
@@ -125,7 +126,28 @@ def cast_vote(
     # someone may have signed in between being served the pair and answering it.
     user_id, session_id = voter_identity(user, session_id)
 
-    ratings = elo.record_result(db, winner, loser, user_id=user_id)
+    before = elo.snapshot(db, winner, loser, user_id=user_id)
+
+    # An answer replaces the last one on the same pair rather than joining it.
+    # A board is what the voter thinks now: take Coleman over Boutte in August
+    # and Boutte over Coleman in September and only one of those is an opinion,
+    # the other is a thing they used to believe. Averaging the two would report
+    # neither, and leaving both on record puts the pair in contradiction with
+    # itself — which reads on the board as a knot nothing can settle, when in
+    # fact the voter is perfectly clear.
+    superseded = owned_by(
+        db.query(Vote).filter(
+            Vote.league == matchup.league,
+            or_(
+                and_(Vote.winner_id == winner.id, Vote.loser_id == loser.id),
+                and_(Vote.winner_id == loser.id, Vote.loser_id == winner.id),
+            ),
+        ),
+        user_id,
+        session_id,
+    ).all()
+    for old_pick in superseded:
+        db.delete(old_pick)
 
     pick = Vote(
         matchup_id=matchup.id,
@@ -138,6 +160,17 @@ def cast_vote(
     )
     db.add(pick)
     matchup.answered = True
+
+    if superseded:
+        # Ratings carry the replaced answer inside them, and no single update
+        # can take it back out — the ladder has to be rebuilt from what stands.
+        db.flush()
+        elo.replay(db, matchup.league)
+        if user_id is not None:
+            elo.replay(db, matchup.league, user_id=user_id)
+        ratings = elo.movement_since(db, winner, loser, before, user_id=user_id)
+    else:
+        ratings = elo.record_result(db, winner, loser, user_id=user_id)
     db.commit()
 
     following = None

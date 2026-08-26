@@ -20,6 +20,7 @@ from typing import Iterable, Optional
 import httpx
 
 from config import UPSTREAM_TIMEOUT
+from services.sources.colours import paint
 from services.sources.base import (
     PlayerSource,
     SourcePlayer,
@@ -96,43 +97,6 @@ CORE_DEPTH = _depth(
 
 SEASON_OVERRIDE = int(os.getenv("MLB_SEASON")) if os.getenv("MLB_SEASON") else None
 
-# The Stats API knows everything about a club except what colour it is. These
-# are the primary and secondary each club puts on its own cap and jersey, and
-# they exist so a matchup reads as one team against another rather than as two
-# grey rectangles. Keyed by the abbreviation the API returns, which is not
-# always the one a fan would write — Athletics answer to ATH.
-TEAM_COLOURS = {
-    "AZ": ("#A71930", "#E3D4AD"),
-    "ATH": ("#003831", "#EFB21E"),
-    "ATL": ("#CE1141", "#13274F"),
-    "BAL": ("#DF4601", "#000000"),
-    "BOS": ("#BD3039", "#0C2340"),
-    "CHC": ("#0E3386", "#CC3433"),
-    "CIN": ("#C6011F", "#000000"),
-    "CLE": ("#00385D", "#E50022"),
-    "COL": ("#33006F", "#C4CED4"),
-    "CWS": ("#27251F", "#C4CED4"),
-    "DET": ("#0C2340", "#FA4616"),
-    "HOU": ("#002D62", "#EB6E1F"),
-    "KC": ("#004687", "#BD9B60"),
-    "LAA": ("#BA0021", "#003263"),
-    "LAD": ("#005A9C", "#EF3E42"),
-    "MIA": ("#00A3E0", "#EF3340"),
-    "MIL": ("#12284B", "#FFC52F"),
-    "MIN": ("#002B5C", "#D31145"),
-    "NYM": ("#002D72", "#FF5910"),
-    "NYY": ("#0C2340", "#C4CED3"),
-    "PHI": ("#E81828", "#002D72"),
-    "PIT": ("#27251F", "#FDB827"),
-    "SD": ("#2F241D", "#FFC425"),
-    "SEA": ("#0C2C56", "#005C5C"),
-    "SF": ("#FD5A1E", "#27251F"),
-    "STL": ("#C41E3A", "#0C2340"),
-    "TB": ("#092C5C", "#8FBCE6"),
-    "TEX": ("#003278", "#C0111F"),
-    "TOR": ("#134A8E", "#E8291C"),
-    "WSH": ("#AB0003", "#14225A"),
-}
 
 
 def current_season(today: Optional[date] = None) -> int:
@@ -255,23 +219,21 @@ class MLBSource(PlayerSource):
             abbr = (team.get("abbreviation") or "").upper()
             if not abbr:
                 continue
-            colour, second = TEAM_COLOURS.get(abbr, (None, None))
             out.append(
                 SourceTeam(
                     abbr=abbr,
                     name=team.get("name") or abbr,
                     conference=(team.get("league") or {}).get("name"),
                     division=(team.get("division") or {}).get("name"),
-                    color=colour,
-                    color2=second,
                     logo_url=f"https://www.mlbstatic.com/team-logos/{team['id']}.svg",
                 )
             )
 
-        missing = [t.abbr for t in out if t.color is None]
-        if missing:
+        out = paint(self.league, out)
+        bare = [t.abbr for t in out if t.color is None]
+        if bare:
             # Not fatal: a colourless club still ranks, it just looks plain.
-            logger.warning("no colours on file for %s", ", ".join(sorted(missing)))
+            logger.warning("no colours on file for %s", ", ".join(sorted(bare)))
         return out
 
     def _rosters(self, client: httpx.Client, team_ids: Iterable[int]) -> dict[int, dict]:
