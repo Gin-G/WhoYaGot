@@ -50,6 +50,21 @@ POOL_STATUS_CODES = {
 # what you want outside of a backfill.
 SEASON_OVERRIDE = int(os.getenv("NFL_SEASON")) if os.getenv("NFL_SEASON") else None
 
+# Whether to take each player's club from the current-roster table rather than
+# from the weekly roster rows.
+#
+# They disagree, and the weekly ones are the stale half. nflverse publishes a
+# roster row per player per game week, so out of season there is exactly one —
+# week 1 — and it keeps saying week 1 until games are played. A trade in August
+# lands nowhere: Kayshon Boutte went to Houston and the weekly feed still had
+# him in New England three weeks later, so the board asked people to compare a
+# Patriot who was not one.
+#
+# The current-roster table is the answer upstream already built for this, and
+# its own notes say so. Off by an environment variable because it is a second
+# call per club and the sync should still run without it.
+USE_CURRENT_TEAMS = os.getenv("NFL_CURRENT_TEAMS", "1") not in {"0", "false", "False"}
+
 
 def _depth(spec: str) -> dict[str, int]:
     """Parse "QB=48,RB=64" into a per-position pool depth."""
@@ -125,6 +140,28 @@ def _float(value) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _current_teams(client_get, teams: list[str]) -> dict[str, str]:
+    """Each player's club now, by gsis id, from the current-roster table.
+
+    One call per club, which is thirty-two a night. A club that cannot be read
+    is skipped rather than fatal — a roster missing from the answer leaves its
+    players on whatever the weekly rows said, which is the position everyone
+    was in before this existed.
+    """
+    latest: dict[str, str] = {}
+    for abbr in teams:
+        try:
+            payload = client_get(f"/rosters/{abbr}", status="all")
+        except Exception as exc:  # noqa: BLE001 - upstream shape is not ours
+            logger.warning("nfl: no current roster for %s: %s", abbr, exc)
+            continue
+        for row in payload.get("data") or []:
+            gsis = row.get("gsis_id")
+            if gsis:
+                latest[gsis] = abbr
+    return latest
 
 
 class NFLSource(PlayerSource):
@@ -436,6 +473,28 @@ class NFLSource(PlayerSource):
             )
 
         players = [player for _, player in best.values()]
+
+        # The weekly rows say which club a player was on in week one. Where the
+        # current-roster table has him somewhere else, it is right and they are
+        # old: it is read from a live source nightly, and they are not rewritten
+        # until games are played.
+        if USE_CURRENT_TEAMS:
+            moved = 0
+            latest = _current_teams(self._get, sorted({p.team_abbr for p in players if p.team_abbr}))
+            for player in players:
+                now = latest.get(player.external_id)
+                if now and now != player.team_abbr:
+                    logger.info(
+                        "nfl: %s has moved %s -> %s since the weekly rosters",
+                        player.name,
+                        player.team_abbr,
+                        now,
+                    )
+                    player.team_abbr = now
+                    moved += 1
+            if latest:
+                logger.info("nfl: %d players moved club since the weekly rosters", moved)
+
         # Last, so a player listed at two positions is scored against the one
         # the dedupe above settled on.
         self._rate_usage(players, resolved_season)

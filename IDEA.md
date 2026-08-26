@@ -1,6 +1,6 @@
 ---
 status: active
-progress: 92
+progress: 94
 ---
 
 # WhoYaGot
@@ -61,7 +61,7 @@ Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The vo
 - [x] Put the W/YG mark on the launcher icon, the browser tab and the board tile
 - [x] Green a rank once your own picks settle it, and count how many are set
 - [ ] Confirm the Yahoo and Drafters column shapes against a real import
-- [ ] Get NFL-API ingesting current roster weeks: it serves week 1 only, so trades never land
+- [ ] Restart NFL-API's roster-sync CronJob: every club is stamped 2026-08-04, so trades stall there
 - [x] Carry team colours per league in one registry, since only the NFL feed ships them
 - [ ] Tune the consolidation share against real voting: 0.6 beat both 0.25 and 0.9
 - [x] Deal the pairs that would settle the most places, once a board is mostly set
@@ -77,3 +77,4 @@ Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The vo
 - [ ] Add NHL, NBA, Soccer and Golf adapters once MLB proves the shape
 - [x] Count only the latest answer on a pair, so a changed mind replaces the old one
 - [x] Dial in a stretch of your board, dealing from wider than the range you picked
+- [x] Take each player's club from the current roster, not the week-one weekly rows

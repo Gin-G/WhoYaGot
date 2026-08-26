@@ -422,3 +422,66 @@ def test_players_absent_from_a_real_fetch_still_deactivate(db, monkeypatch, pool
     assert result["deactivated"] == len(pool) - 1
     assert db.query(Player).filter(Player.active.is_(True)).count() == 1
     assert db.query(PlayerRating).count() == len(pool)  # ratings survive
+
+
+# --- a player who has been traded ---------------------------------------------
+
+
+def test_a_traded_player_is_moved_to_the_club_he_is_on_now(monkeypatch):
+    """The weekly rows keep saying week one until games are played."""
+    monkeypatch.setattr(nfl, "SEASON_OVERRIDE", None)
+    monkeypatch.setattr(nfl, "current_season", lambda today=None: 2026)
+    monkeypatch.setattr(nfl, "USE_CURRENT_TEAMS", True)
+    _stub_get(monkeypatch, {2026: [_roster_row(team="NE", player_id="00-0038608")]})
+
+    monkeypatch.setattr(
+        nfl,
+        "_current_teams",
+        lambda client_get, teams: {"00-0038608": "HOU"},
+    )
+    players = nfl.NFLSource().fetch_players()
+    assert players[0].team_abbr == "HOU"
+
+
+def test_a_player_the_current_roster_does_not_hold_keeps_his_weekly_club(monkeypatch):
+    monkeypatch.setattr(nfl, "SEASON_OVERRIDE", None)
+    monkeypatch.setattr(nfl, "current_season", lambda today=None: 2026)
+    monkeypatch.setattr(nfl, "USE_CURRENT_TEAMS", True)
+    _stub_get(monkeypatch, {2026: [_roster_row(team="GB", player_id="00-0000001")]})
+    monkeypatch.setattr(nfl, "_current_teams", lambda client_get, teams: {})
+
+    assert nfl.NFLSource().fetch_players()[0].team_abbr == "GB"
+
+
+def test_a_club_that_cannot_be_read_does_not_sink_the_sync():
+    """One unreadable roster leaves its players where they were, and no more."""
+
+    def explode(path, **params):
+        raise RuntimeError("upstream said no")
+
+    assert nfl._current_teams(explode, ["NE", "HOU"]) == {}
+
+
+def test_current_teams_reads_every_club_by_gsis_id():
+    seen = []
+
+    def fake_get(path, **params):
+        seen.append(path)
+        club = path.rsplit("/", 1)[-1]
+        return {"data": [{"gsis_id": f"id-{club}", "player_name": "X"}]}
+
+    assert nfl._current_teams(fake_get, ["NE", "HOU"]) == {"id-NE": "NE", "id-HOU": "HOU"}
+    assert seen == ["/rosters/NE", "/rosters/HOU"]
+
+
+def test_the_overlay_can_be_turned_off(monkeypatch):
+    monkeypatch.setattr(nfl, "SEASON_OVERRIDE", None)
+    monkeypatch.setattr(nfl, "current_season", lambda today=None: 2026)
+    monkeypatch.setattr(nfl, "USE_CURRENT_TEAMS", False)
+    _stub_get(monkeypatch, {2026: [_roster_row(team="NE", player_id="00-0038608")]})
+
+    def explode(client_get, teams):
+        raise AssertionError("should not have been called")
+
+    monkeypatch.setattr(nfl, "_current_teams", explode)
+    assert nfl.NFLSource().fetch_players()[0].team_abbr == "NE"
