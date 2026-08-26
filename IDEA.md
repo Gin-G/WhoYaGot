@@ -1,6 +1,6 @@
 ---
 status: active
-progress: 90
+progress: 92
 ---
 
 # WhoYaGot
@@ -76,3 +76,4 @@ Live at whoyagot.nickknows.net on NFL 2026, deployed by ArgoCD from main. The vo
 - [ ] Unspread the ladders: k-factor makes a well-voted position rank wider, not better
 - [ ] Add NHL, NBA, Soccer and Golf adapters once MLB proves the shape
 - [x] Count only the latest answer on a pair, so a changed mind replaces the old one
+- [x] Dial in a stretch of your board, dealing from wider than the range you picked

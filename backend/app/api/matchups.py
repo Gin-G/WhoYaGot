@@ -53,15 +53,40 @@ def _follow_up_position(requested: Optional[str], answered: Optional[str]) -> Op
     return None if requested.lower() == MIX else requested
 
 
+def _dial(first: Optional[int], last: Optional[int]) -> Optional[tuple[int, int]]:
+    """A rank range to work on, or None for the ordinary draw.
+
+    Both ends or neither: half a range is an ambiguous request, and guessing
+    which half was meant would quietly deal from somewhere the voter did not
+    ask for.
+    """
+    if first is None and last is None:
+        return None
+    if first is None or last is None:
+        raise HTTPException(
+            status_code=400,
+            detail="dial_from and dial_to go together — send both or neither",
+        )
+    if first < 1 or last < 1:
+        raise HTTPException(status_code=400, detail="ranks start at 1")
+    return (min(first, last), max(first, last))
+
+
 def _deal(
     db: Session,
     league: str,
     position: Optional[str],
     user_id: Optional[int],
     session_id: Optional[str],
+    dial: Optional[tuple[int, int]] = None,
 ) -> MatchupOut:
     matchup, a, b = create_matchup(
-        db, league=league, position=position, user_id=user_id, session_id=session_id
+        db,
+        league=league,
+        position=position,
+        user_id=user_id,
+        session_id=session_id,
+        dial=dial,
     )
     db.commit()
     return _serialize(db, matchup, a, b)
@@ -73,6 +98,14 @@ def next_matchup(
     position: Optional[str] = Query(
         None, description="Omit to draw from every position, crossing them freely"
     ),
+    dial_from: Optional[int] = Query(
+        None,
+        description=(
+            "First rank of the stretch of your board to settle. The draw reaches "
+            "past both ends of it, since a range cannot be settled against itself"
+        ),
+    ),
+    dial_to: Optional[int] = Query(None, description="Last rank of that stretch"),
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(current_user_optional),
     session_id: Optional[str] = Depends(get_session_id),
@@ -80,7 +113,9 @@ def next_matchup(
     """Serve the next pair to vote on."""
     user_id, session_id = voter_identity(user, session_id)
     try:
-        return _deal(db, league.lower(), position, user_id, session_id)
+        return _deal(
+            db, league.lower(), position, user_id, session_id, _dial(dial_from, dial_to)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except NoMatchupAvailable as exc:
@@ -99,6 +134,10 @@ def cast_vote(
             "is reused — which is what clients predating this expect."
         ),
     ),
+    dial_from: Optional[int] = Query(
+        None, description="Carry a dialled-in range onto the following pair"
+    ),
+    dial_to: Optional[int] = Query(None, description="Last rank of that stretch"),
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(current_user_optional),
     session_id: Optional[str] = Depends(get_session_id),
@@ -182,6 +221,7 @@ def cast_vote(
                 _follow_up_position(next_position, matchup.position),
                 user_id,
                 session_id,
+                _dial(dial_from, dial_to),
             )
         except (NoMatchupAvailable, ValueError) as exc:
             # The vote is already saved; the client can retry /next on its own.
@@ -219,6 +259,10 @@ def skip_matchup(
     next_position: Optional[str] = Query(
         None, description="Same meaning as on /vote: a position, or 'mix' for no filter"
     ),
+    dial_from: Optional[int] = Query(
+        None, description="Carry a dialled-in range onto the following pair"
+    ),
+    dial_to: Optional[int] = Query(None, description="Last rank of that stretch"),
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(current_user_optional),
     session_id: Optional[str] = Depends(get_session_id),
@@ -236,6 +280,7 @@ def skip_matchup(
             _follow_up_position(next_position, matchup.position),
             user_id,
             session_id,
+            _dial(dial_from, dial_to),
         )
     except NoMatchupAvailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))

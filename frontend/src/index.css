@@ -170,6 +170,27 @@
   }
 }
 
+@layer components {
+  /* Two range inputs stacked over one track. The tracks are invisible and
+     ignore the pointer so they cannot swallow each other's drags; only the
+     thumbs are grabbable, which lets a hand take whichever handle is nearer. */
+  .dial-handle {
+    pointer-events: none;
+  }
+
+  .dial-handle::-webkit-slider-thumb {
+    @apply h-5 w-5 cursor-grab rounded-full border-2 border-ink bg-chalk;
+    pointer-events: auto;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .dial-handle::-moz-range-thumb {
+    @apply h-5 w-5 cursor-grab rounded-full border-2 border-ink bg-chalk;
+    pointer-events: auto;
+  }
+}
+
 @layer utilities {
   .pt-inset {
     padding-top: calc(var(--inset-top) + 0.5rem);

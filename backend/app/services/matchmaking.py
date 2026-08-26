@@ -31,8 +31,9 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from config import MIN_VOTES_PERSONAL
 from database.models import Matchup, Player, PlayerRating, UserPlayerRating, Vote
-from services.settling import analyse
+from services.settling import analyse, order_by_picks
 from services.sources import get_source
 
 logger = logging.getLogger(__name__)
@@ -404,12 +405,119 @@ def choose_position(league: str, position: Optional[str]) -> str:
     return random.choice(source.positions)
 
 
+# How far either side of a dialled-in range the draw reaches.
+#
+# A range cannot be settled against itself. To know that the player at twenty
+# belongs there rather than at fifteen, he has to be put against fifteen — so
+# asking to dial in 20-40 deals from 10-50, and the answers land inside the
+# range that was asked for.
+#
+# Half the width each way, which is what makes 20-40 reach 10-50. A floor under
+# it because a narrow ask still needs somewhere to look: dialling in a single
+# place with no padding would have nothing to compare against at all.
+DIAL_PAD_SHARE = 2
+DIAL_PAD_MIN = 5
+
+
+def ranked_order(
+    db: Session,
+    league: str,
+    user_id: Optional[int],
+    position: Optional[str],
+) -> list[int]:
+    """The board the voter is looking at, as player ids, best first.
+
+    Their own if they are signed in and have one, since "picks 20-40" means
+    their twenty to forty and nobody else's. Falling back to the crowd's, so
+    the dial still does something on a board too new to have an order of its
+    own.
+    """
+    if user_id is not None:
+        q = (
+            db.query(Player, UserPlayerRating)
+            .join(UserPlayerRating, UserPlayerRating.player_id == Player.id)
+            .filter(
+                UserPlayerRating.user_id == user_id,
+                UserPlayerRating.league == league,
+                UserPlayerRating.votes >= MIN_VOTES_PERSONAL,
+            )
+        )
+        if position:
+            q = q.filter(Player.position == position.upper())
+        rows = q.order_by(UserPlayerRating.rating.desc()).all()
+        if len(rows) >= 2:
+            picks = (
+                db.query(Vote.winner_id, Vote.loser_id)
+                .filter(Vote.user_id == user_id, Vote.league == league)
+                .all()
+            )
+            return order_by_picks(
+                [player.id for player, _ in rows],
+                {player.id: rating.rating for player, rating in rows},
+                picks,
+            )
+
+    q = (
+        db.query(Player, PlayerRating)
+        .join(PlayerRating, PlayerRating.player_id == Player.id)
+        .filter(Player.league == league, Player.active.is_(True))
+    )
+    if position:
+        q = q.filter(Player.position == position.upper())
+    return [
+        player.id
+        for player, _ in q.order_by(PlayerRating.rating.desc()).all()
+    ]
+
+
+def dial_window(order: list[int], first: int, last: int) -> list[int]:
+    """The slice to deal from, so that `first`-`last` can be settled.
+
+    Ranks are one-based and inclusive, the way they are read off a board.
+    """
+    first, last = max(1, min(first, last)), max(first, last)
+    pad = max(DIAL_PAD_MIN, (last - first + 1) // DIAL_PAD_SHARE)
+    lo = max(0, first - 1 - pad)
+    hi = last + pad
+    return order[lo:hi]
+
+
+def _neighbours(
+    ordered: list[tuple[Player, PlayerRating]]
+) -> tuple[tuple[Player, PlayerRating], tuple[Player, PlayerRating]]:
+    """Two players sitting near each other in the order handed in."""
+    first = random.randrange(len(ordered) - 1)
+    last = min(first + random.randint(1, RANKED_PAIR_SPAN), len(ordered) - 1)
+    return ordered[first], ordered[last]
+
+
+def _pool_by_ids(
+    db: Session, league: str, ids: list[int]
+) -> list[tuple[Player, PlayerRating]]:
+    """These players exactly, in no particular order.
+
+    Not run through the usual depth cut: the voter named this stretch of their
+    own board, and a player they have ranked into it is in it whatever his
+    projection says.
+    """
+    if not ids:
+        return []
+    rows = (
+        db.query(Player, PlayerRating)
+        .join(PlayerRating, PlayerRating.player_id == Player.id)
+        .filter(Player.league == league, Player.id.in_(ids))
+        .all()
+    )
+    return rows
+
+
 def create_matchup(
     db: Session,
     league: str,
     position: Optional[str] = None,
     user_id: Optional[int] = None,
     session_id: Optional[str] = None,
+    dial: Optional[tuple[int, int]] = None,
 ) -> tuple[Matchup, Player, Player]:
     """Deal one pair and persist it. Caller commits.
 
@@ -418,6 +526,36 @@ def create_matchup(
     because it does not belong to one.
     """
     source = get_source(league)
+
+    # A dialled-in range replaces the usual draw rather than filtering it. The
+    # voter has named the stretch of their board they want right, so there is
+    # no question left about who is worth dealing — the answer is these, and
+    # the pair to ask about is whichever gap in them is still open. That is the
+    # consolidation draw, pointed at a slice.
+    if dial is not None:
+        first, last = dial
+        window = dial_window(ranked_order(db, league, user_id, position), first, last)
+        pool = _pool_by_ids(db, league, window)
+        if len(pool) < 2:
+            raise NoMatchupAvailable(
+                f"{league} ranks {first}-{last} hold fewer than two players — "
+                "vote a little more before dialling this far down"
+            )
+        # Kept in board order, which is the order the fallback below needs.
+        held = {entry[0].id: entry for entry in pool}
+        ordered = [held[player_id] for player_id in window if player_id in held]
+
+        history = _history(db, league, user_id, session_id)
+        pair = _pick_ranked_pair(ordered, history, _voter_ratings(db, league, user_id))
+        if pair is None:
+            # No gap left to close in here, or no picks yet to find one from.
+            # Deal neighbours rather than any two: a board with nothing on it
+            # would otherwise open by asking about the top of the window
+            # against the bottom, which is the one comparison in the range
+            # nobody needs made.
+            pair = _neighbours(ordered)
+        return _pair_up(db, league, pair[0][0], pair[1][0], user_id, session_id)
+
     # Asking for a position is asking for that position; only an open request
     # is free to cross.
     across = position is None and random.random() < CROSS_POSITION_RATE
@@ -471,8 +609,19 @@ def create_matchup(
     if anchor is None or opponent is None:
         raise NoMatchupAvailable(f"no eligible opponent in {league} {wanted}")
 
-    # Randomise side so the anchor is not always on the left.
-    a, b = (anchor[0], opponent[0]) if random.random() < 0.5 else (opponent[0], anchor[0])
+    return _pair_up(db, league, anchor[0], opponent[0], user_id, session_id)
+
+
+def _pair_up(
+    db: Session,
+    league: str,
+    one: Player,
+    other: Player,
+    user_id: Optional[int],
+    session_id: Optional[str],
+) -> tuple[Matchup, Player, Player]:
+    """Put a chosen pair on the table, on a coin toss for which side."""
+    a, b = (one, other) if random.random() < 0.5 else (other, one)
 
     matchup = Matchup(
         id=uuid.uuid4().hex,

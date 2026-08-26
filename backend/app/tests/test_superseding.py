@@ -37,6 +37,10 @@ def _answer(db, matchup, winner, user):
     return cast_vote(
         payload=VoteIn(matchup_id=matchup.id, winner_id=winner.id),
         next_position=None,
+        # Called straight rather than through FastAPI, so every parameter it
+        # would normally resolve from the query string has to be handed over.
+        dial_from=None,
+        dial_to=None,
         db=db,
         user=user,
         session_id=None,

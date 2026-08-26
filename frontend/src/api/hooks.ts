@@ -4,6 +4,16 @@ import { apiClient } from './client'
 
 /** Asks for no position filter, as opposed to saying nothing at all. */
 const MIX = 'mix'
+
+/** A stretch of the voter's own board to work on, as one-based ranks. */
+export interface Dial {
+  from: number
+  to: number
+}
+
+function dialParams(dial: Dial | null) {
+  return dial ? { dial_from: dial.from, dial_to: dial.to } : {}
+}
 import type { League, Matchup, Picks, RankingEntry, Rankings, VoteResult } from './types'
 
 /**
@@ -49,12 +59,19 @@ export function useLeagues() {
  * following matchup in the same response — so a pick never costs a round trip
  * before the next pair can render.
  */
-export function useMatchup(league: string, position: string | null, enabled: boolean) {
+export function useMatchup(
+  league: string,
+  position: string | null,
+  enabled: boolean,
+  dial: Dial | null = null,
+) {
   return useQuery({
-    queryKey: ['matchup', league, position],
+    // The dial is part of the key: changing it asks a different question, and
+    // the pair on screen was an answer to the old one.
+    queryKey: ['matchup', league, position, dial?.from ?? null, dial?.to ?? null],
     queryFn: async () => {
       const { data } = await apiClient.get<Matchup>('/matchups/next', {
-        params: { league, ...(position ? { position } : {}) },
+        params: { league, ...(position ? { position } : {}), ...dialParams(dial) },
       })
       return data
     },
@@ -67,8 +84,9 @@ export function useMatchup(league: string, position: string | null, enabled: boo
   })
 }
 
-export function useVote(league: string, position: string | null) {
+export function useVote(league: string, position: string | null, dial: Dial | null = null) {
   const queryClient = useQueryClient()
+  const key = ['matchup', league, position, dial?.from ?? null, dial?.to ?? null]
 
   return useMutation({
     mutationFn: async (vars: { matchupId: string; winnerId: number }) => {
@@ -78,35 +96,36 @@ export function useVote(league: string, position: string | null) {
         // The follow-up comes from what the voter has selected, not from the
         // pair they were just dealt. Without this a mixed session pins itself
         // to whichever position the first same-position pair happened to be.
-        { params: { next_position: position ?? MIX } },
+        { params: { next_position: position ?? MIX, ...dialParams(dial) } },
       )
       return data
     },
     onSuccess: (result) => {
       if (result.next) {
-        queryClient.setQueryData(['matchup', league, position], result.next)
+        queryClient.setQueryData(key, result.next)
       } else {
-        void queryClient.invalidateQueries({ queryKey: ['matchup', league, position] })
+        void queryClient.invalidateQueries({ queryKey: key })
       }
       void queryClient.invalidateQueries({ queryKey: ['rankings'] })
     },
   })
 }
 
-export function useSkip(league: string, position: string | null) {
+export function useSkip(league: string, position: string | null, dial: Dial | null = null) {
   const queryClient = useQueryClient()
+  const key = ['matchup', league, position, dial?.from ?? null, dial?.to ?? null]
 
   return useMutation({
     mutationFn: async (matchupId: string) => {
       const { data } = await apiClient.post<Matchup>(
         '/matchups/skip',
         { matchup_id: matchupId },
-        { params: { next_position: position ?? MIX } },
+        { params: { next_position: position ?? MIX, ...dialParams(dial) } },
       )
       return data
     },
     onSuccess: (next) => {
-      queryClient.setQueryData(['matchup', league, position], next)
+      queryClient.setQueryData(key, next)
     },
   })
 }

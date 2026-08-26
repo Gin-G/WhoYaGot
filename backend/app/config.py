@@ -35,5 +35,19 @@ CORS_ORIGINS = _csv(
     "http://localhost:5173,http://localhost:4173,https://localhost,capacitor://localhost",
 )
 
+# --- What counts as ranked --------------------------------------------------
+# A rating built from two votes is noise. Hide players below this on the global
+# board (their rating still exists and still moves — it just isn't ranked yet).
+MIN_VOTES_GLOBAL = int(os.getenv("MIN_VOTES_GLOBAL", "5"))
+
+# The same idea for one person's board, at a threshold their own voting can
+# actually reach: a personal ladder is fed by one voter rather than all of them,
+# so the global bar would leave a new board empty for hundreds of picks.
+#
+# In config rather than beside the endpoint because the matchmaker needs it too:
+# dialling in a stretch of a board works on the board the voter can see, and a
+# player under this bar is not on it.
+MIN_VOTES_PERSONAL = int(os.getenv("MIN_VOTES_PERSONAL", "3"))
+
 # --- Ratings ----------------------------------------------------------------
 ELO_BASE = float(os.getenv("ELO_BASE", "1500"))

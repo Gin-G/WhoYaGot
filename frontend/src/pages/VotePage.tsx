@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { describeError } from '../api/client'
-import { useMatchup, useSkip, useUndoPick, useVote } from '../api/hooks'
+import type { Dial } from '../api/hooks'
+import { useMatchup, useRankings, useSkip, useUndoPick, useVote } from '../api/hooks'
 import type { Matchup } from '../api/types'
 import { MatchupStage } from '../components/MatchupStage'
+import { DialIn } from '../components/DialIn'
 import { PositionChips } from '../components/PositionChips'
 import { Loading, StatusNote } from '../components/StatusNote'
+import { useAuth } from '../lib/auth'
 
 /** How long the winner stays flooded before the next pair arrives. */
 const HOLD_MS = 460
@@ -18,9 +21,18 @@ interface Props {
 }
 
 export function VotePage({ league, positions, position, onPositionChange }: Props) {
-  const matchupQuery = useMatchup(league, position, Boolean(league))
-  const vote = useVote(league, position)
-  const skip = useSkip(league, position)
+  const { user } = useAuth()
+  const [dial, setDial] = useState<Dial | null>(null)
+
+  // How deep the board goes decides how far the dial can reach. Read from the
+  // first page rather than the whole thing: the count is what matters here,
+  // not the players.
+  const board = useRankings(league, position, 'personal', Boolean(user))
+  const ranked = board.data?.pages?.[0]?.total ?? 0
+
+  const matchupQuery = useMatchup(league, position, Boolean(league), dial)
+  const vote = useVote(league, position, dial)
+  const skip = useSkip(league, position, dial)
   const undo = useUndoPick()
 
   const [picked, setPicked] = useState<'a' | 'b' | null>(null)
@@ -56,6 +68,9 @@ export function VotePage({ league, positions, position, onPositionChange }: Prop
   useEffect(() => {
     setPicked(null)
     setResult(null)
+    // Ranks belong to one board. Twenty-to-forty at wide receiver is not the
+    // same stretch as twenty-to-forty overall, so the dial does not carry.
+    setDial(null)
   }, [league, position])
 
   const handlePick = useCallback(
@@ -131,8 +146,15 @@ export function VotePage({ league, positions, position, onPositionChange }: Prop
 
   return (
     <div className="flex h-full flex-col bg-concrete">
-      <div className="shrink-0 border-b-2 border-ink">
-        <PositionChips positions={positions} value={position} onChange={onPositionChange} />
+      <div className="relative shrink-0 border-b-2 border-ink">
+        <div className="flex items-center gap-2 pr-4">
+          <div className="min-w-0 flex-1">
+            <PositionChips positions={positions} value={position} onChange={onPositionChange} />
+          </div>
+          {/* One instance, which grows into the row when it opens: two would
+              keep two sets of handles and lose them swapping over. */}
+          <DialIn ranked={ranked} value={dial} onChange={setDial} />
+        </div>
       </div>
 
       <div className="relative min-h-0 flex-1">

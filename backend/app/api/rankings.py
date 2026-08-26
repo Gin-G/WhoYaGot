@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from config import MIN_VOTES_GLOBAL, MIN_VOTES_PERSONAL
 from api.utils import team_map
 from database.models import Player, PlayerRating, User, UserPlayerRating, Vote
 from database.session import get_db
@@ -14,16 +15,6 @@ from services.security import current_user
 from services.settling import analyse, order_by_picks
 
 router = APIRouter()
-
-# A rating built from two votes is noise. Hide players below this on the global
-# board (their rating still exists and still moves — it just isn't ranked yet).
-MIN_VOTES_GLOBAL = 5
-
-# The same idea for one person's board, at a threshold their own voting can
-# actually reach: a personal ladder is fed by one voter rather than all of them,
-# so the global bar would leave a new board empty for hundreds of picks.
-MIN_VOTES_PERSONAL = 3
-
 
 @router.get("", response_model=RankingsOut)
 def rankings(
