@@ -148,32 +148,52 @@ jobs:
       # ArgoCD watches the chart, so committing the new tags is the deploy.
       # This only touches helm/, which is not in this workflow's path filter,
       # so the commit does not trigger another run.
-      - name: Point the Helm chart at the new images
+      #
+      # The edit is applied to whatever main is at the moment of committing,
+      # not to this run's checkout. Two builds finishing close together both
+      # rewrite the same two lines, and rebasing one onto the other conflicts
+      # every time — which is exactly what happened when a delayed push event
+      # replayed a build that had already been run by hand. Re-applying cannot
+      # conflict, because the change is "set these tags to mine" rather than a
+      # patch that has to fit.
+      - name: Point the chart at the new images and commit
         if: steps.registry.outputs.publish == 'true'
+        env:
+          TAG: ${{ steps.date.outputs.date }}
         run: |
-          TAG="${{ steps.date.outputs.date }}"
-          sed -i "s|image: docker.io/ncging/whoyagot-api:.*|image: docker.io/ncging/whoyagot-api:${TAG}|" \
-            helm/whoyagot/values.yaml
-          sed -i "s|image: docker.io/ncging/whoyagot-web:.*|image: docker.io/ncging/whoyagot-web:${TAG}|" \
-            helm/whoyagot/values.yaml
-
-          # A sed that silently matched nothing would leave ArgoCD deploying the
-          # previous image while the run reports success.
-          grep -q "whoyagot-api:${TAG}" helm/whoyagot/values.yaml \
-            && grep -q "whoyagot-web:${TAG}" helm/whoyagot/values.yaml \
-            || { echo "::error::Failed to update image tags in helm/whoyagot/values.yaml"; exit 1; }
-          grep -E 'image: docker.io/ncging/whoyagot-(api|web):' helm/whoyagot/values.yaml
-
-      - name: Commit the chart update
-        if: steps.registry.outputs.publish == 'true'
-        run: |
-          if git diff --quiet -- helm/whoyagot/values.yaml; then
-            echo "Chart already points at this tag; nothing to commit."
-            exit 0
-          fi
+          set -euo pipefail
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
           git config user.name "$GITHUB_ACTOR"
-          git add helm/whoyagot/values.yaml
-          git commit -m "ci: deploy whoyagot-api and whoyagot-web ${{ steps.date.outputs.date }}"
-          git pull --rebase
-          git push
+
+          for attempt in 1 2 3; do
+            git fetch origin "$GITHUB_REF_NAME"
+            git reset --hard "origin/$GITHUB_REF_NAME"
+
+            sed -i "s|image: docker.io/ncging/whoyagot-api:.*|image: docker.io/ncging/whoyagot-api:${TAG}|" \
+              helm/whoyagot/values.yaml
+            sed -i "s|image: docker.io/ncging/whoyagot-web:.*|image: docker.io/ncging/whoyagot-web:${TAG}|" \
+              helm/whoyagot/values.yaml
+
+            # A sed that silently matched nothing would leave ArgoCD deploying
+            # the previous image while the run reports success.
+            grep -q "whoyagot-api:${TAG}" helm/whoyagot/values.yaml \
+              && grep -q "whoyagot-web:${TAG}" helm/whoyagot/values.yaml \
+              || { echo "::error::Failed to update image tags in helm/whoyagot/values.yaml"; exit 1; }
+
+            if git diff --quiet -- helm/whoyagot/values.yaml; then
+              echo "Chart already points at ${TAG}; nothing to commit."
+              exit 0
+            fi
+
+            grep -E 'image: docker.io/ncging/whoyagot-(api|web):' helm/whoyagot/values.yaml
+            git add helm/whoyagot/values.yaml
+            git commit -m "ci: deploy whoyagot-api and whoyagot-web ${TAG}"
+
+            if git push; then
+              exit 0
+            fi
+            echo "main moved while pushing; re-applying on top of it (attempt ${attempt}/3)"
+          done
+
+          echo "::error::Could not commit the chart update after three attempts"
+          exit 1
