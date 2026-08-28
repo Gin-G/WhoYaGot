@@ -146,15 +146,8 @@ export function VotePage({ league, positions, position, onPositionChange }: Prop
 
   return (
     <div className="flex h-full flex-col bg-concrete">
-      <div className="relative shrink-0 border-b-2 border-ink">
-        <div className="flex items-center gap-2 pr-4">
-          <div className="min-w-0 flex-1">
-            <PositionChips positions={positions} value={position} onChange={onPositionChange} />
-          </div>
-          {/* One instance, which grows into the row when it opens: two would
-              keep two sets of handles and lose them swapping over. */}
-          <DialIn ranked={ranked} value={dial} onChange={setDial} />
-        </div>
+      <div className="shrink-0 border-b-2 border-ink">
+        <PositionChips positions={positions} value={position} onChange={onPositionChange} />
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -185,10 +178,17 @@ export function VotePage({ league, positions, position, onPositionChange }: Prop
         )}
       </div>
 
-      <div className="pb-inset flex shrink-0 items-center justify-between gap-3 border-t-2 border-ink px-4 py-2 md:pb-2">
+      {/* Relative, so the dial's panel can open upward out of this bar. */}
+      <div className="pb-inset relative flex shrink-0 items-center justify-between gap-3 border-t-2 border-ink px-4 py-2 md:pb-2">
         <span className="tabular min-w-0 truncate text-[0.65rem] uppercase tracking-wider text-ink-soft">
           {votes === null ? 'Tap a player' : `${votes} ${votes === 1 ? 'pick' : 'picks'}`}
         </span>
+
+        {/* Down here rather than beside the position chips: on a phone that row
+            is already full, and this is a control the thumb reaches for while
+            voting. */}
+        <DialIn ranked={ranked} value={dial} onChange={setDial} />
+
         <span className="sign hidden text-[0.6rem] text-ink-soft md:block">
           ← → to pick · S to skip{last ? ' · U to undo' : ''}
         </span>
